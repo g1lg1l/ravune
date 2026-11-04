@@ -4,9 +4,13 @@ name: Release builds
 #   Windows: an installer (Inno Setup) and a zip
 #   macOS:   Ravune.app in a .dmg (ad-hoc signed, not notarized)
 #   Linux:   a tar.gz
-# Run it by hand with the release's tag (create the tag and a draft release first, check
-# the files, then publish the draft).
+# Pushing a tag v* starts it: the release is made as a draft (or one already there, with its
+# notes, is used), the builds are attached, and once all three are in it's published, as a
+# pre-release while the tag says beta. A build that fails leaves the draft unpublished.
+# By hand: gh workflow run "Release builds" -f tag=vX.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -18,10 +22,23 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  TAG: ${{ inputs.tag }}
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      # "v0.9.1-beta" is "Ravune 0.9.1 beta", a pre-release; its notes the commits since the last
+      - run: |
+          version="${TAG#v}"
+          pre=""
+          [[ "$version" == *-* ]] && pre="--prerelease"
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --draft $pre --verify-tag --generate-notes --title "Ravune ${version//-/ }"
+
   build:
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Linux audio/MIDI headers
@@ -132,6 +149,10 @@ jobs:
           tar -czf "dist/$legacy.tar.gz" "$legacy"
 
       - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" dist/* --clobber
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$TAG" --draft=false
