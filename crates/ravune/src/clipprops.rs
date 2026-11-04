@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::playlist::sound_ticks;
 use crate::theme::Theme;
 use crate::{App, icons, kit, widgets};
+use crate::shell::Tone;
 
 const GAIN: ParamInfo = ParamInfo {
     name: "Gain",
@@ -747,7 +748,7 @@ impl App {
                     match self.sound_bpm(i) {
                         Some(bpm) => {
                             self.follow_tempo(i, clip.fx.stretch, Some(bpm), "clip-bpm-detect");
-                            self.say(tr!("Made at {} BPM, by the sound of it", bpm));
+                            self.say_as(Tone::Done, tr!("Made at {} BPM, by the sound of it", bpm));
                         }
                         None => self.say(tr!("No steady beat in it: type its tempo")),
                     }

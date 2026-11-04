@@ -14,6 +14,7 @@ use crate::browser::{PatternDrag, PluginDrag, SampleDrag};
 use crate::shell::{Rename, Renaming};
 use crate::theme::Theme;
 use crate::{icons, kit, widgets};
+use crate::shell::Tone;
 
 const RULER_H: f32 = 18.0;
 /// The lane header column (sticky on the left).
@@ -730,7 +731,7 @@ impl App {
                     Incoming::Plugin(f) => {
                         DragAndDrop::take_payload::<PluginDrag>(ui.ctx());
                         if !f.instrument {
-                            self.say(tr!("Effects go on a mixer track: drop it on the rack, or add it from the mixer"));
+                            self.say_as(Tone::Error, tr!("Effects go on a mixer track: drop it on the rack, or add it from the mixer"));
                         } else if let Some(i) = onto {
                             // into that pattern: a new channel, and the pattern opens to write its notes
                             let ClipKind::Pattern { pattern } = self.session.project.clips[i].kind else { unreachable!() };
@@ -1509,7 +1510,7 @@ impl App {
                             if let Some(bpm) = self.sound_bpm(k) {
                                 let mode = self.session.project.clips[k].fx.stretch;
                                 self.follow_tempo(k, mode, Some(bpm), "clip-bpm-detect");
-                                self.say(tr!("Made at {} BPM, by the sound of it", bpm));
+                                self.say_as(Tone::Done, tr!("Made at {} BPM, by the sound of it", bpm));
                             } else {
                                 self.say(tr!("No steady beat in it: type its tempo in the clip's properties"));
                             }
@@ -1818,7 +1819,7 @@ impl App {
         match self.library.get(&path) {
             Ok(s) => Some((clip, path, s)),
             Err(e) => {
-                self.say(e);
+                self.say_as(Tone::Error, e);
                 None
             }
         }
@@ -1835,7 +1836,7 @@ impl App {
         for (part, frames) in [(tr!("drums"), &hits), (tr!("tones"), &tones)] {
             let file = (1..).map(|k| dir.join(if k == 1 { format!("{name} - {part}.wav") } else { format!("{name} - {part} {k}.wav") })).find(|p| !p.exists()).unwrap();
             if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| ravune_engine::write_wav(&file, frames, 1, sound.rate as u32)) {
-                self.say(tr!("Couldn't save the split: {}", e));
+                self.say_as(Tone::Error, tr!("Couldn't save the split: {}", e));
                 return;
             }
             files.push(file.to_string_lossy().into_owned());
@@ -1851,7 +1852,7 @@ impl App {
         let _ = self.session.run("clip.set_fx", json!({ "index": i, "mute": true }));
         self.session.end_group();
         self.library.refresh();
-        self.say(tr!("Split {}: the drums and the tones are on new lanes, the original is muted", name));
+        self.say_as(Tone::Done, tr!("Split {}: the drums and the tones are on new lanes, the original is muted", name));
     }
 
     /// Hears the melody of audio clip `i` and writes it as notes: a new VA-1 channel, a new
@@ -1868,7 +1869,7 @@ impl App {
             .map(|(start, length, key, velocity)| (start as u32, length, key, velocity))
             .collect();
         if notes.is_empty() {
-            self.say(tr!("No melody heard in it (one voice at a time works best)"));
+            self.say_as(Tone::Error, tr!("No melody heard in it (one voice at a time works best)"));
             return;
         }
         let name = sample_name(&path).trim_end_matches(".wav").to_string();
@@ -1890,8 +1891,8 @@ impl App {
         })();
         self.session.end_group();
         match done {
-            Ok(()) => self.say(tr!("{} notes from {}: a new VA-1 channel and pattern, on a new lane", notes.len(), name)),
-            Err(e) => self.say(e),
+            Ok(()) => self.say_as(Tone::Done, tr!("{} notes from {}: a new VA-1 channel and pattern, on a new lane", notes.len(), name)),
+            Err(e) => self.say_as(Tone::Error, e),
         }
     }
 
@@ -1899,7 +1900,7 @@ impl App {
     pub fn add_audio_clip(&mut self, path: &str, lane: u32, start: u32) {
         if ravune_core::is_instrument(path) {
             self.run("channel.add", json!({ "sample": path }));
-            self.say(tr!("Instruments play from the rack: added it as a channel"));
+            self.say_as(Tone::Done, tr!("Instruments play from the rack: added it as a channel"));
             return;
         }
         match self.library.get(path) {
@@ -1907,7 +1908,7 @@ impl App {
                 let length = ((s.seconds() as f64 / tick_seconds(self.session.project.tempo)).round() as u32).max(1);
                 self.run("clip.add", json!({ "lane": lane, "start": start, "sample": path, "length": length }));
             }
-            Err(e) => self.say(e),
+            Err(e) => self.say_as(Tone::Error, e),
         }
     }
 

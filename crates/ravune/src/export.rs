@@ -12,6 +12,7 @@ use ravune_engine::{Mode, Song, Transport, render_offline, write_wav_as};
 use serde::{Deserialize, Serialize};
 
 use crate::App;
+use crate::shell::Tone;
 
 const RATE: u32 = 44_100;
 /// Lets tails (releases, reverb, echoes) ring out after the last bar.
@@ -173,12 +174,12 @@ impl App {
             return;
         }
         if self.session.project.clips.is_empty() {
-            self.say(tr!("The playlist is empty: place some patterns first (export renders the song)."));
+            self.say_as(Tone::Error, tr!("The playlist is empty: place some patterns first (export renders the song)."));
             return;
         }
         let format = self.settings.export_format;
         if format == Format::Mp3 && !has_ffmpeg() {
-            self.say(tr!("MP3 needs ffmpeg installed (ffmpeg.org): pick another format, or install it and try again"));
+            self.say_as(Tone::Error, tr!("MP3 needs ffmpeg installed (ffmpeg.org): pick another format, or install it and try again"));
             return;
         }
         let ext = format.ext();
@@ -203,12 +204,12 @@ impl App {
             return;
         }
         if self.session.project.clips.is_empty() {
-            self.say(tr!("The playlist is empty: place some patterns first (export renders the song)."));
+            self.say_as(Tone::Error, tr!("The playlist is empty: place some patterns first (export renders the song)."));
             return;
         }
         let format = self.settings.export_format;
         if format == Format::Mp3 && !has_ffmpeg() {
-            self.say(tr!("MP3 needs ffmpeg installed (ffmpeg.org): pick another format, or install it and try again"));
+            self.say_as(Tone::Error, tr!("MP3 needs ffmpeg installed (ffmpeg.org): pick another format, or install it and try again"));
             return;
         }
         let Some(folder) = rfd::FileDialog::new().set_title(tr!("A folder for the stems")).pick_folder() else { return };
@@ -257,8 +258,8 @@ impl App {
         };
         self.export = None;
         match result {
-            Ok(path) => self.say(tr!("Exported {}", path.display())),
-            Err(e) => self.say(tr!("Export failed: {}", e)),
+            Ok(path) => self.say_as(Tone::Done, tr!("Exported {}", path.display())),
+            Err(e) => self.say_as(Tone::Error, tr!("Export failed: {}", e)),
         }
     }
 }

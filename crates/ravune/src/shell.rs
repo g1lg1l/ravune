@@ -2,7 +2,7 @@
 //! floating editor windows, Preferences, the shortcut sheet, the command palette and the
 //! rename dialog.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, ComboBox, CornerRadius, FontId, Id, Key, Modifiers, Popup, RichText, Sense, Stroke, Ui, pos2, vec2};
 
@@ -15,6 +15,44 @@ use crate::theme::{THEME_EXTENSION, THEME_EXTENSIONS, Theme};
 use crate::widgets::WaveStyle;
 use crate::i18n::{self, Lang};
 use crate::{App, BUFFER_SIZES, PIANO_KEYS, Tab, files, icons, kit, usage, widgets};
+
+/// What a toast is about: its badge, its title and their color (Velo's tones, after Sileo).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Tone {
+    /// Something to read, and go on.
+    Info,
+    Done,
+    /// Ravune waits on the user: a knob to move, an update to install.
+    Action,
+    Error,
+}
+
+/// The one toast on screen; a new one replaces it.
+#[derive(Debug)]
+pub struct Toast {
+    tone: Tone,
+    pub text: String,
+    born: Instant,
+    /// A button on it ("Undo") and what it's for.
+    action: Option<(String, &'static str)>,
+}
+
+impl Toast {
+    pub fn new(tone: Tone, text: String) -> Self {
+        Self { tone, text, born: Instant::now(), action: None }
+    }
+
+    /// With a button: when it's clicked, the app's `toast_acted` says `what`.
+    pub fn with_action(mut self, label: impl Into<String>, what: &'static str) -> Self {
+        self.action = Some((label.into(), what));
+        self
+    }
+}
+
+/// Seconds on screen, seconds in and out, and how wide it gets.
+const TOAST_LIFE: f32 = 6.0;
+const TOAST_ENTER: f32 = 0.4;
+const TOAST_WIDTH: f32 = 340.0;
 
 /// The editors: tab, icon, name, keymap command.
 pub const EDITORS: [(Tab, &str, &str, &str); 4] = [
@@ -581,45 +619,90 @@ impl App {
         });
     }
 
-    /// Messages slide up from the bottom-right corner and fade away (React Bits' Animated Content).
-    /// One with an Undo stays a little longer, and its button takes the thing back.
+    /// The toast (Velo's, after Sileo, squared off): a card in the bottom-right corner, a
+    /// square badge and its tone's title in its color, a lit edge on the left, the message, a
+    /// button when it has one. It springs in, holds while hovered, and goes when clicked.
     pub fn toast_ui(&mut self, ctx: &egui::Context) {
-        let Some((msg, at)) = &self.toast else { return };
-        let action = self.toast_action;
-        let life = if action.is_some() { 6.0 } else { 4.0 };
-        let age = at.elapsed().as_secs_f32();
-        if age > life {
-            (self.toast, self.toast_action) = (None, None);
+        let t = self.theme.clone();
+        let Some(toast) = &mut self.toast else { return };
+        let now = Instant::now();
+        let age = (now - toast.born).as_secs_f32();
+        if age > TOAST_LIFE + TOAST_ENTER {
+            self.toast = None;
             return;
         }
-        let t = &self.theme;
-        let k = kit::ease((age / 0.22).min(1.0)).min(((life - age) / 0.35).clamp(0.0, 1.0));
-        let corner = ctx.content_rect().right_bottom() - vec2(t.pad * 2.0, 24.0 + t.pad * 2.0 - 12.0 * (1.0 - k));
-        let undo = egui::Area::new(Id::unique("toast")).order(egui::Order::Foreground).fixed_pos(corner).pivot(Align2::RIGHT_BOTTOM).interactable(action.is_some()).show(ctx, |ui| {
-            ui.multiply_opacity(k);
-            egui::Frame::new()
-                .fill(t.bg_device)
-                .stroke(Stroke::new(1.0, t.line))
-                .corner_radius(t.radius_md + 2)
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .shadow(ctx.global_style().visuals.popup_shadow)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(RichText::new(format!("{}  {msg}", icons::INFO)).color(t.fg_text)).extend());
-                        action.is_some() && kit::button(ui, t, Some(icons::ARROW_U_UP_LEFT), tr!("Undo"), false).clicked()
-                    })
-                    .inner
-                })
-                .inner
+        let (color, icon, title) = match toast.tone {
+            Tone::Info => (t.accent, icons::INFO, None),
+            Tone::Done => (t.meter_ok, icons::CHECK, Some(tr!("Done"))),
+            Tone::Action => (t.select, icons::LIGHTNING, Some(tr!("Your turn"))),
+            Tone::Error => (t.meter_hot, icons::WARNING, Some(tr!("Error"))),
+        };
+        // in: up from 8 px below, from 96 %, with a little bounce; out: down and faded
+        let (k_in, k_out) = (kit::spring(age / TOAST_ENTER), kit::ease((age - TOAST_LIFE) / TOAST_ENTER));
+        let (opacity, scale) = (kit::ease(age / TOAST_ENTER) * (1.0 - k_out), 0.96 + 0.04 * k_in);
+        let corner = ctx.content_rect().right_bottom() - vec2(t.pad * 2.0, 24.0 + t.pad * 2.0);
+        let shift = vec2(0.0, 8.0 * (1.0 - k_in) + 8.0 * k_out);
+        let action = toast.action.clone();
+        let out = egui::Area::new(Id::unique("toast")).order(egui::Order::Foreground).fixed_pos(corner).pivot(Align2::RIGHT_BOTTOM).show(ctx, |ui| {
+            ui.multiply_opacity(opacity);
+            let transform = egui::emath::TSTransform::new(corner.to_vec2() * (1.0 - scale) + shift, scale);
+            ui.with_visual_transform(transform, |ui| {
+                let frame = egui::Frame::new()
+                    .fill(t.bg_device)
+                    .stroke(Stroke::new(1.0, Theme::mix(t.line, color, 0.35)))
+                    .corner_radius(t.radius_md)
+                    .inner_margin(egui::Margin { left: 14, right: 12, top: 9, bottom: 9 })
+                    .shadow(ctx.global_style().visuals.popup_shadow)
+                    .show(ui, |ui| {
+                        ui.set_max_width(TOAST_WIDTH);
+                        ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+                        let mut clicked = false;
+                        ui.horizontal(|ui| {
+                            // the badge: a square of its color, its icon in it
+                            let (badge, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                            ui.painter().rect_filled(badge, t.radius_sm, color.gamma_multiply(0.2));
+                            kit::icon_at(ui.painter(), badge.center(), icon, 12.0, color);
+                            if let Some(title) = title {
+                                ui.label(RichText::new(title).color(color));
+                            }
+                            let text = egui::Label::new(RichText::new(&toast.text).color(t.fg_text));
+                            if title.is_none() {
+                                ui.add(text.wrap());
+                            }
+                        });
+                        if title.is_some() {
+                            ui.add(egui::Label::new(RichText::new(&toast.text).color(t.fg_muted)).wrap());
+                        }
+                        if let Some((label, _)) = &action {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                clicked = kit::action(ui, &t, kit::Variant::Outline, Some(icons::ARROW_U_UP_LEFT), label).clicked();
+                            });
+                        }
+                        clicked
+                    });
+                // the lit edge, as a meter's
+                let rect = frame.response.rect;
+                ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, vec2(2.0, rect.height())), 0, color);
+                (frame.inner, rect)
+            })
+            .inner
         });
-        if undo.inner {
-            self.toast_acted = action;
-            (self.toast, self.toast_action) = (None, None);
+        let (clicked, rect) = out.inner;
+        let hit = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| rect.contains(p));
+        let toast = self.toast.as_mut().expect("still there");
+        if clicked {
+            self.toast_acted = action.map(|a| a.1);
+            toast.born = now - Duration::from_secs_f32(TOAST_LIFE.max(age));
+        } else if out.response.clicked() {
+            // a click on it: it goes
+            toast.born = now - Duration::from_secs_f32(TOAST_LIFE.max(age));
+        } else if hit && age > TOAST_LIFE - 1.0 && age < TOAST_LIFE {
+            // held while hovered: the clock waits a second short of going
+            toast.born = now - Duration::from_secs_f32(TOAST_LIFE - 1.0);
         }
-        // frames while it slides in and fades out; in between it just waits
-        let (fade_in, fade_out) = (0.22, life - 0.35);
-        let wait = if age < fade_in || age > fade_out { 0.016 } else { fade_out - age };
-        ctx.request_repaint_after(Duration::from_secs_f32(wait));
+        // frames while it moves; in between, wake for when it goes
+        let settled = age > TOAST_ENTER && age < TOAST_LIFE;
+        ctx.request_repaint_after(if settled && !hit { Duration::from_secs_f32(TOAST_LIFE - age) } else { Duration::from_millis(16) });
     }
 
     pub fn editor_area(&mut self, ui: &mut Ui) {
@@ -798,7 +881,7 @@ impl App {
             if let Some(i) = kit::segmented(ui, t, current, &Preset::ALL.map(Preset::name)) {
                 self.settings.keymap = Keymap { preset: Preset::ALL[i], ..Default::default() };
                 self.binding = None;
-                self.say(tr!("Keys: the {} layout", Preset::ALL[i].name()));
+                self.say_as(Tone::Done, tr!("Keys: the {} layout", Preset::ALL[i].name()));
             }
             let note = match self.settings.keymap.changed.len() {
                 0 => tr!("Click a shortcut to change it · right-click clears it.").to_string(),
@@ -1027,10 +1110,10 @@ impl App {
             Ok(theme) => {
                 self.settings.themes.retain(|t| t.name != theme.name);
                 self.settings.themes.push(theme.clone());
-                self.say(tr!("Imported the theme \"{}\"", theme.name));
+                self.say_as(Tone::Done, tr!("Imported the theme \"{}\"", theme.name));
                 self.use_theme(ctx, theme);
             }
-            Err(e) => self.say(tr!("Can't read {}: {}", path.display(), e)),
+            Err(e) => self.say_as(Tone::Error, tr!("Can't read {}: {}", path.display(), e)),
         }
     }
 
@@ -1040,8 +1123,8 @@ impl App {
         let Some(path) = dialog.save_file() else { return };
         let text = ron::ser::to_string_pretty(theme, ron::ser::PrettyConfig::default()).unwrap_or_default();
         match std::fs::write(&path, text) {
-            Ok(()) => self.say(tr!("Saved {}", path.display())),
-            Err(e) => self.say(tr!("Can't write {}: {}", path.display(), e)),
+            Ok(()) => self.say_as(Tone::Done, tr!("Saved {}", path.display())),
+            Err(e) => self.say_as(Tone::Error, tr!("Can't write {}: {}", path.display(), e)),
         }
     }
 
@@ -1124,7 +1207,7 @@ impl App {
         if save {
             let theme = self.settings.theme.clone();
             self.settings.themes.retain(|s| s.name != theme.name);
-            self.say(tr!("Saved the theme \"{}\"", theme.name));
+            self.say_as(Tone::Done, tr!("Saved the theme \"{}\"", theme.name));
             self.settings.themes.push(theme);
         }
         if export {

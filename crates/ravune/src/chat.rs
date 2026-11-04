@@ -24,6 +24,7 @@ use crate::ai::{self, Event, Provider, Run};
 use crate::orb::{self, State};
 use crate::theme::Theme;
 use crate::{App, icons, kit, markdown};
+use crate::shell::Tone;
 
 /// What the empty chat offers to try (and sends when clicked).
 const EXAMPLES: [&str; 3] = ["Make the kick punchier", "Add a reverb bus for the snare", "Write a bassline in A minor"];
@@ -518,7 +519,7 @@ impl App {
         match picture.and_then(ai::keep_picture) {
             Ok(path) if !self.chat.pictures.contains(&path) => self.chat.pictures.push(path),
             Ok(_) => {}
-            Err(e) => self.say(tr!("Couldn't attach {}: {}", name, e)),
+            Err(e) => self.say_as(Tone::Error, tr!("Couldn't attach {}: {}", name, e)),
         }
         self.chat.focus = true;
     }
@@ -993,7 +994,7 @@ impl App {
             });
             if let Some(text) = copied {
                 ui.ctx().copy_text(text);
-                self.say(tr!("Copied"));
+                self.say_as(Tone::Done, tr!("Copied"));
             }
         }
         // other apps: the same tools, through the bridge
@@ -1022,7 +1023,7 @@ impl App {
         });
         if let Some(text) = copied {
             ui.ctx().copy_text(text.clone());
-            self.say(tr!("Copied"));
+            self.say_as(Tone::Done, tr!("Copied"));
         }
         if let_in {
             self.settings.agent.enabled = true;
@@ -1132,9 +1133,9 @@ impl App {
             let from = c.items[..end].iter().rposition(|i| matches!(i, Item::User(_))).map_or(0, |i| i + 1);
             let text: Vec<&str> = c.items[from..end].iter().filter_map(|i| if let Item::Text { text, .. } = i { Some(text.as_str()) } else { None }).collect();
             ctx.copy_text(text.join("\n\n"));
-            self.say(tr!("Copied"));
+            self.say_as(Tone::Done, tr!("Copied"));
         } else if actions.copied {
-            self.say(tr!("Copied"));
+            self.say_as(Tone::Done, tr!("Copied"));
         }
         if actions.close_guide {
             self.chat.guide = false;
@@ -1503,7 +1504,7 @@ impl App {
                         self.chat.has_key = Some(!key.trim().is_empty());
                         self.chat_check(ctx, Provider::Local);
                     }
-                    Err(e) => self.say(tr!("The keychain said no: {}", e)),
+                    Err(e) => self.say_as(Tone::Error, tr!("The keychain said no: {}", e)),
                 }
             }
             if saved && kit::button(ui, t, None, tr!("Remove"), false).clicked() && ai::set_key(&self.settings.ai.endpoint, "").is_ok() {

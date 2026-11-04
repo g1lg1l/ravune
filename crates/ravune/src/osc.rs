@@ -30,6 +30,7 @@ use serde_json::{Value, json};
 
 use crate::theme::Theme;
 use crate::{App, icons, kit};
+use crate::shell::Tone;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -210,7 +211,7 @@ impl App {
                 Ok(osc) => self.osc = Some(osc),
                 Err(e) => {
                     self.settings.osc.enabled = false;
-                    self.say(tr!("OSC can't listen on port {}: {}", prefs.port, e));
+                    self.say_as(Tone::Error, tr!("OSC can't listen on port {}: {}", prefs.port, e));
                 }
             }
         }

@@ -9,6 +9,7 @@ use ravune_engine::{Msg, write_wav};
 use serde_json::json;
 
 use crate::App;
+use crate::shell::Tone;
 
 /// Seconds of audio the ring holds between two drains.
 // ponytail: drained from the UI loop; a window frozen longer than this drops blocks, a
@@ -48,7 +49,7 @@ impl App {
             return;
         }
         let Some(engine) = &mut self.engine else {
-            self.say(tr!("No audio output: nothing to record"));
+            self.say_as(Tone::Error, tr!("No audio output: nothing to record"));
             return;
         };
         let rate = engine.sample_rate;
@@ -80,19 +81,19 @@ impl App {
         }
         rec.drain();
         if rec.frames.is_empty() {
-            self.say(tr!("Nothing was recorded"));
+            self.say_as(Tone::Error, tr!("Nothing was recorded"));
             return;
         }
         let dir = recordings_dir();
         let path = (1..).map(|n| dir.join(format!("Recording {n}.wav"))).find(|p| !p.exists()).unwrap();
         let saved = std::fs::create_dir_all(&dir).and_then(|_| write_wav(&path, &rec.frames, 2, rec.rate));
         if let Err(e) = saved {
-            self.say(tr!("Couldn't save the recording: {}", e));
+            self.say_as(Tone::Error, tr!("Couldn't save the recording: {}", e));
             return;
         }
         let lane = self.session.project.clips.iter().map(|c| c.lane + 1).max().unwrap_or(0);
         self.add_audio_clip(&path.to_string_lossy(), lane, rec.start);
         let seconds = rec.frames.len() as f32 / 2.0 / rec.rate as f32;
-        self.say(tr!("Recorded {} s to {}", format!("{seconds:.1}"), path.display()));
+        self.say_as(Tone::Done, tr!("Recorded {} s to {}", format!("{seconds:.1}"), path.display()));
     }
 }

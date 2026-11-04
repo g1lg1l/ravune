@@ -12,6 +12,7 @@ use crate::rack::label;
 use crate::shell::{Rename, Renaming};
 use crate::theme::Theme;
 use crate::{App, icons, kit, widgets};
+use crate::shell::Tone;
 
 const STRIP_W: f32 = 108.0;
 /// The patch bay under the strips, where the cables hang.
@@ -746,7 +747,7 @@ impl App {
         for (source, name) in names.iter().enumerate().filter(|(s, _)| *s != track && *s != 0) {
             if ui.button(format!("{}  {name}", icons::FADERS)).clicked() {
                 self.run("mixer.duck", json!({ "track": track, "source": source }));
-                self.say(tr!("{} now ducks under {}: tweak the depth on its compressor", names[track], name));
+                self.say_as(Tone::Done, tr!("{} now ducks under {}: tweak the depth on its compressor", names[track], name));
                 ui.close();
             }
         }
@@ -1113,7 +1114,7 @@ impl App {
             }
             if let Some(source) = kit::dropped::<Source>(resp) {
                 self.run("mod.map", json!({ "source": *source, "target": target, "amount": 0.5 }));
-                self.say(tr!("Mapped at 50%: fine-tune the amount on the Modulation tab (F10)."));
+                self.say_as(Tone::Done, tr!("Mapped at 50%: fine-tune the amount on the Modulation tab (F10)."));
             }
         }
         let p = &self.session.project;
@@ -1210,7 +1211,7 @@ impl App {
             let (lane, length) = (p.clips.iter().map(|c| c.lane + 1).max().unwrap_or(0), p.song_end());
             self.run("clip.add", json!({ "lane": lane, "start": 0, "length": length, "automation": target, "points": [[0, v], [length, v]] }));
             self.playlist.selected = std::collections::BTreeSet::from([self.session.project.clips.len() - 1]);
-            self.say(tr!("Automation clip for {} on playlist lane {}: click its line to add points, drag them", target_name(&self.session.project, target), lane + 1));
+            self.say_as(Tone::Done, tr!("Automation clip for {} on playlist lane {}: click its line to add points, drag them", target_name(&self.session.project, target), lane + 1));
         }
         if in_pattern {
             let p = &self.session.project;
@@ -1220,7 +1221,7 @@ impl App {
             }
             self.piano.auto = Some(target);
             self.tab = crate::Tab::PianoRoll;
-            self.say(tr!("{} in \"{}\": draw it under the piano roll; it plays wherever the pattern does", target_name(&self.session.project, target), pattern_name));
+            self.say_as(Tone::Done, tr!("{} in \"{}\": draw it under the piano roll; it plays wherever the pattern does", target_name(&self.session.project, target), pattern_name));
         }
         if let Some(index) = rename {
             let name = self.session.project.macros.get(index as usize).map_or(String::new(), |m| m.name.clone());
@@ -1228,7 +1229,7 @@ impl App {
         }
         if learn {
             self.learning = Some(target);
-            self.say(tr!("Move a knob or fader on your MIDI controller (Esc cancels)"));
+            self.say_as(Tone::Action, tr!("Move a knob or fader on your MIDI controller (Esc cancels)"));
         }
         if forget {
             self.run("midi.forget", json!({ "target": target }));
@@ -1239,7 +1240,7 @@ impl App {
         }
         if let Some(source) = chosen {
             self.run("mod.map", json!({ "source": source, "target": target, "amount": 0.5 }));
-            self.say(tr!("Mapped at 50%: fine-tune the amount on the Modulation tab (F10)."));
+            self.say_as(Tone::Done, tr!("Mapped at 50%: fine-tune the amount on the Modulation tab (F10)."));
         }
         if clear {
             for i in mapped.into_iter().rev() {

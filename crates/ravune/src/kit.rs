@@ -36,6 +36,15 @@ pub fn ease(k: f32) -> f32 {
     1.0 - (1.0 - k.clamp(0.0, 1.0)).powi(3)
 }
 
+/// A spring from 0 to 1 that overshoots a little and settles (Sileo's, 0.25 bounce).
+pub fn spring(k: f32) -> f32 {
+    if k >= 1.0 {
+        return 1.0;
+    }
+    let k = k.max(0.0);
+    1.0 - (-8.06 * k).exp() * ((7.11 * k).cos() + 1.134 * (7.11 * k).sin())
+}
+
 /// Eased 0..1 hover amount: hovers fade in and out instead of snapping.
 pub fn hover(ui: &Ui, t: &Theme, resp: &Response) -> f32 {
     ui.ctx().animate_bool_with_time(resp.id.with("hover"), resp.hovered() || resp.has_focus(), t.motion)

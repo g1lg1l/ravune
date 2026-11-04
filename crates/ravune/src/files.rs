@@ -6,6 +6,7 @@ use eframe::egui::{self, RichText};
 use ravune_core::{Project, Session};
 
 use crate::App;
+use crate::shell::Tone;
 
 pub const EXTENSION: &str = "ravune";
 /// What Ravune opens: its own projects, and those saved while it was still called Phasor.
@@ -194,7 +195,7 @@ impl App {
             Pending::New => self.load_project(Project::default(), None, Project::default()),
             Pending::Bundled(text) => match ron::from_str::<Project>(text) {
                 Ok(project) => self.load_project(project.clone(), None, project),
-                Err(e) => self.say(tr!("this template is broken: {}", e)),
+                Err(e) => self.say_as(Tone::Error, tr!("this template is broken: {}", e)),
             },
             Pending::Import(path) => {
                 let name = path.file_stem().map_or("Imported".into(), |s| s.to_string_lossy().into_owned());
@@ -202,26 +203,26 @@ impl App {
                 match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|bytes| crate::dawproject::import(&bytes, &audio)) {
                     Ok(project) => {
                         self.load_project(project, None, Project::default());
-                        self.say(tr!("Brought in {}: note tracks became VA-1 channels, audio is in Documents/Ravune/Imported", name));
+                        self.say_as(Tone::Done, tr!("Brought in {}: note tracks became VA-1 channels, audio is in Documents/Ravune/Imported", name));
                     }
-                    Err(e) => self.say(tr!("Couldn't bring in {}: {}", name, e)),
+                    Err(e) => self.say_as(Tone::Error, tr!("Couldn't bring in {}: {}", name, e)),
                 }
             }
             Pending::Restart => self.ext.restart = true,
             Pending::Template(path) => match read(&path) {
                 Ok(project) => self.load_project(project.clone(), None, project),
-                Err(e) => self.say(e),
+                Err(e) => self.say_as(Tone::Error, e),
             },
             Pending::Open(path) => match read(&path) {
                 Ok(project) => {
                     self.remember(&path);
                     self.load_project(project.clone(), Some(path), project);
-                    self.say(tr!("Opened {}", self.file_name()));
+                    self.say_as(Tone::Done, tr!("Opened {}", self.file_name()));
                 }
                 Err(e) => {
                     // gone or broken: off the recent list
                     self.settings.recent.retain(|r| Path::new(r) != path);
-                    self.say(e);
+                    self.say_as(Tone::Error, e);
                 }
             },
         }
@@ -249,8 +250,8 @@ impl App {
         let Some(path) = rfd::FileDialog::new().add_filter("DAWproject", &["dawproject"]).set_file_name(format!("{name}.dawproject")).save_file() else { return };
         let library = &mut self.library;
         match crate::dawproject::export(&self.session.project, &name, |sample| crate::browser::sample_audio(library, sample)).and_then(|zip| std::fs::write(&path, zip).map_err(|e| e.to_string())) {
-            Ok(()) => self.say(tr!("Exported {}", path.display())),
-            Err(e) => self.say(tr!("Export failed: {}", e)),
+            Ok(()) => self.say_as(Tone::Done, tr!("Exported {}", path.display())),
+            Err(e) => self.say_as(Tone::Error, tr!("Export failed: {}", e)),
         }
     }
 
@@ -276,11 +277,11 @@ impl App {
                 self.saved = self.session.project.clone();
                 self.remember(&path);
                 self.file = Some(path);
-                self.say(tr!("Saved {}", self.file_name()));
+                self.say_as(Tone::Done, tr!("Saved {}", self.file_name()));
                 true
             }
             Err(e) => {
-                self.say(e);
+                self.say_as(Tone::Error, e);
                 false
             }
         }
@@ -354,7 +355,7 @@ impl App {
                 Some(0) => ctx.open_url(egui::OpenUrl::new_tab(crash_issue_url(&report))),
                 Some(1) => {
                     ctx.copy_text(report);
-                    self.say(tr!("Report copied"));
+                    self.say_as(Tone::Done, tr!("Report copied"));
                 }
                 Some(_) => {}
                 None => self.crash = Some(report),

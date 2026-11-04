@@ -21,6 +21,7 @@ use ravune_core::{BAR, PPQ, STEP};
 use serde_json::{Value, json};
 
 use crate::App;
+use crate::shell::Tone;
 
 /// Built-in scripts: name, what it does, source, arguments.
 const BUILTIN: [(&str, &str, &str, &str); 9] = [
@@ -90,9 +91,9 @@ impl App {
     /// Runs a script as one undo step; says how it went.
     pub fn run_script(&mut self, script: &Script) {
         match self.script_result(script) {
-            Ok(printed) if printed.is_empty() => self.say(tr!("Ran {}", script.name)),
+            Ok(printed) if printed.is_empty() => self.say_as(Tone::Done, tr!("Ran {}", script.name)),
             Ok(printed) => self.say(format!("{}: {}", script.name, printed.join(" · "))),
-            Err(e) => self.say(tr!("{} stopped: {}", script.name, e)),
+            Err(e) => self.say_as(Tone::Error, tr!("{} stopped: {}", script.name, e)),
         }
     }
 
@@ -224,13 +225,13 @@ mod tests {
         let bad = Script { name: "bad".into(), about: String::new(), source: Source::Builtin("ravune.run('transport.set_tempo', { bpm = 99 }); ravune.run('no.such', {})", "{}") };
         app.run_script(&bad);
         assert_eq!(app.session.project, before, "rolled back");
-        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("no.such")));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("no.such")));
         let forever = Script { name: "forever".into(), about: String::new(), source: Source::Builtin("while true do end", "{}") };
         let started = Instant::now();
         app.run_script(&forever);
-        assert!(started.elapsed() < Duration::from_secs(5) && app.toast.as_ref().is_some_and(|(t, _)| t.contains("2 seconds")));
+        assert!(started.elapsed() < Duration::from_secs(5) && app.toast.as_ref().is_some_and(|t| t.text.contains("2 seconds")));
         let sandboxed = Script { name: "io".into(), about: String::new(), source: Source::Builtin("io.open('x', 'w')", "{}") };
         app.run_script(&sandboxed);
-        assert!(app.toast.as_ref().is_some_and(|(t, _)| t.contains("stopped")), "no io library");
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("stopped")), "no io library");
     }
 }

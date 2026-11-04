@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use crate::theme::Theme;
 use crate::{App, icons, kit};
+use crate::shell::Tone;
 
 pub const PORT: u16 = 7317;
 /// What `ravune-mcp` reads to find and open the server: `{ "port", "token" }`.
@@ -229,7 +230,7 @@ impl App {
                 }
                 Err(e) => {
                     self.settings.agent.enabled = false;
-                    self.say(tr!("Agents can't listen on port {}: {}", prefs.port, e));
+                    self.say_as(Tone::Error, tr!("Agents can't listen on port {}: {}", prefs.port, e));
                 }
             }
         }
@@ -445,7 +446,7 @@ impl App {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if kit::icon_button(ui, t, icons::COPY, tr!("Copy"), false).clicked() {
                         ui.ctx().copy_text(command.clone());
-                        self.say(tr!("Copied"));
+                        self.say_as(Tone::Done, tr!("Copied"));
                     }
                     ui.add(egui::Label::new(RichText::new(&command).font(Theme::mono(10.0))).truncate());
                 });

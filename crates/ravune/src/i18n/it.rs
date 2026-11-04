@@ -1523,4 +1523,8 @@ pub static STRINGS: &[(&str, &str)] = &[
     ("How busy Ravune keeps the GPU, as Task Manager counts it", "Quanto Ravune tiene occupata la GPU, come la conta Gestione attività"),
     ("Video memory Ravune holds: {} of the {} the system lets it use", "Memoria video di Ravune: {} dei {} che il sistema le concede"),
     ("Video memory Ravune holds: {}", "Memoria video di Ravune: {}"),
+    // shell.rs, the toasts' tones
+    ("Done", "Fatto"),
+    ("Your turn", "Tocca a te"),
+    ("Error", "Errore"),
 ];

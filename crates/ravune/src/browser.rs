@@ -14,6 +14,7 @@ use serde_json::json;
 use crate::shell::{Rename, Renaming};
 use crate::theme::Theme;
 use crate::{App, icons, kit};
+use crate::shell::Tone;
 
 /// The built-in kit: every .wav in `assets/library` (listed by build.rs), named by its path
 /// there. The sounds at the top were synthesized by `ravune-engine/examples/make_kit.rs`;
@@ -718,7 +719,7 @@ impl App {
         }
         // across drives a rename can't: then a copy, and the old one goes
         if let Err(e) = std::fs::rename(from, &to).or_else(|_| std::fs::copy(from, &to).and_then(|_| std::fs::remove_file(from))) {
-            self.say(tr!("Couldn't move {}: {}", old, e));
+            self.say_as(Tone::Error, tr!("Couldn't move {}: {}", old, e));
             return;
         }
         let new = to.to_string_lossy().into_owned();
@@ -742,7 +743,7 @@ impl App {
             *f = new.clone();
         }
         self.library.refresh();
-        self.say(tr!("Moved {} to {}", old, dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned())));
+        self.say_as(Tone::Done, tr!("Moved {} to {}", old, dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned())));
     }
 
     /// "Delete?" for what's waiting on it: deleted for good (not to the recycle bin) on yes.
@@ -773,7 +774,7 @@ impl App {
                     }
                 }
                 self.library.refresh();
-                self.say(if gone == paths.len() { tr!("Deleted {}", what) } else { tr!("Deleted {} of {}: the rest is in use or locked", gone, paths.len()) });
+                self.say_as(Tone::Done, if gone == paths.len() { tr!("Deleted {}", what) } else { tr!("Deleted {} of {}: the rest is in use or locked", gone, paths.len()) });
             }
             Some(false) => self.browser.doomed = None,
             None => {}
@@ -797,7 +798,7 @@ impl App {
                     e.send(Msg::Preview(Some(sample)));
                 }
             }
-            Err(e) => self.say(e),
+            Err(e) => self.say_as(Tone::Error, e),
         }
     }
 

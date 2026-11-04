@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use crate::browser::SampleDrag;
 use crate::theme::Theme;
 use crate::{App, icons, kit, widgets};
+use crate::shell::Tone;
 
 const PAGE: usize = 20;
 /// Downloads bigger than this are refused (a sample, not an album).
@@ -768,7 +769,7 @@ impl App {
                                 self.add_online(&key);
                             }
                         }
-                        Err(e) => self.say(tr!("Download failed: {}", e)),
+                        Err(e) => self.say_as(Tone::Error, tr!("Download failed: {}", e)),
                     }
                 }
             }
@@ -838,7 +839,7 @@ impl App {
                 Some(path.to_string_lossy().into_owned())
             }
             Err(e) => {
-                self.say(tr!("Can't keep it: {}", e));
+                self.say_as(Tone::Error, tr!("Can't keep it: {}", e));
                 None
             }
         }
@@ -848,7 +849,7 @@ impl App {
         let Some(name) = self.online.hits.iter().find(|h| h.key() == key).map(|h| h.name().to_string()) else { return };
         if let Some(path) = self.keep_hit(key) {
             self.run("channel.add", json!({ "sample": path, "name": name }));
-            self.say(tr!("Added \"{}\" · its credit is saved for File → Export credits", name));
+            self.say_as(Tone::Done, tr!("Added \"{}\" · its credit is saved for File → Export credits", name));
         }
     }
 
@@ -1151,8 +1152,8 @@ impl App {
             text += &format!("{}\n", hit.credit());
         }
         match std::fs::write(&path, text) {
-            Ok(()) => self.say(tr!("Credits for {} sounds saved to {}", credits.len(), path.display())),
-            Err(e) => self.say(tr!("Can't write {}: {}", path.display(), e)),
+            Ok(()) => self.say_as(Tone::Done, tr!("Credits for {} sounds saved to {}", credits.len(), path.display())),
+            Err(e) => self.say_as(Tone::Error, tr!("Can't write {}: {}", path.display(), e)),
         }
     }
 }

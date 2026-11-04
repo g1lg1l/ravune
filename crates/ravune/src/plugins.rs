@@ -17,6 +17,7 @@ use serde_json::json;
 
 use crate::theme::Theme;
 use crate::{App, icons, kit};
+use crate::shell::Tone;
 
 const LOAD: Duration = Duration::from_secs(20);
 const SCAN: Duration = Duration::from_secs(30);
@@ -192,7 +193,7 @@ impl App {
                     }
                 }
                 Err(e) => {
-                    self.say(tr!("Couldn't load {}: {}", l.spec.1.rsplit(['/', '\\']).next().unwrap_or_default(), e));
+                    self.say_as(Tone::Error, tr!("Couldn't load {}: {}", l.spec.1.rsplit(['/', '\\']).next().unwrap_or_default(), e));
                     self.plugins.failed.insert(target, (l.spec, e));
                 }
             }
@@ -238,7 +239,7 @@ impl App {
             self.send_engine(Msg::Plugin { target, bridge: Some(bridge) });
         }
         for name in crashed {
-            self.say(tr!("{} crashed: its sound is off, Ravune is fine. Reload it from its device.", name));
+            self.say_as(Tone::Error, tr!("{} crashed: its sound is off, Ravune is fine. Reload it from its device.", name));
         }
     }
 
@@ -326,9 +327,9 @@ impl App {
         let show = !i.editor;
         match i.hosted.ask(&Command::Gui { show, title: format!("{name} · Ravune") }, ASK) {
             Ok(Reply::Ok) => i.editor = show,
-            Ok(Reply::Error { message }) => self.say(message),
+            Ok(Reply::Error { message }) => self.say_as(Tone::Error, message),
             Ok(_) => {}
-            Err(e) => self.say(e),
+            Err(e) => self.say_as(Tone::Error, e),
         }
     }
 
@@ -538,7 +539,7 @@ impl App {
         let plugin = plugin_ref(f);
         if f.instrument {
             self.run("channel.add", json!({ "plugin": plugin }));
-            self.say(tr!("Added {} · F8 shows it, its editor and parameters", f.name));
+            self.say_as(Tone::Done, tr!("Added {} · F8 shows it, its editor and parameters", f.name));
             self.open_when_loaded_channel();
         } else {
             let track = self.mixer_track;
@@ -549,7 +550,7 @@ impl App {
     fn add_effect_plugin(&mut self, f: &Found, track: usize) {
         self.run("device.add", json!({ "track": track, "kind": "plugin", "plugin": plugin_ref(f) }));
         let name = self.session.project.mixer.get(track).map_or(String::new(), |t| t.name.clone());
-        self.say(tr!("Added {} to {}", f.name, name));
+        self.say_as(Tone::Done, tr!("Added {} to {}", f.name, name));
         if let Some(d) = self.session.project.mixer.get(track).and_then(|t| t.devices.last()) {
             self.plugins.open_on_load.insert(PluginTarget::Device(d.id));
         }
@@ -572,7 +573,7 @@ impl App {
             }
             (Some(f), _) => {
                 self.run("channel.replace", json!({ "channel": channel, "plugin": plugin_ref(f) }));
-                self.say(tr!("{} plays this channel's notes now", f.name));
+                self.say_as(Tone::Done, tr!("{} plays this channel's notes now", f.name));
                 self.open_when_loaded_channel();
             }
             (None, Some(path)) => {

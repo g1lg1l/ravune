@@ -23,6 +23,7 @@ use serde::Deserialize;
 
 use crate::theme::{THEME_EXTENSIONS, Theme};
 use crate::{App, icons, kit};
+use crate::shell::Tone;
 
 pub const EXTENSION: &str = "ravunext";
 /// Extensions packed while Ravune was still called Phasor install too.
@@ -392,7 +393,7 @@ impl App {
                     self.ext.downloading.retain(|n| *n != name);
                     match bytes {
                         Ok(bytes) => self.install_extension(ctx, &bytes),
-                        Err(e) => self.say(tr!("Couldn't download {}: {}", name, e)),
+                        Err(e) => self.say_as(Tone::Error, tr!("Couldn't download {}: {}", name, e)),
                     }
                 }
                 Reply::Release(release) => {
@@ -401,14 +402,14 @@ impl App {
                         && newer(&r.tag, env!("CARGO_PKG_VERSION"))
                         && self.ext.update.is_none()
                     {
-                        self.say(tr!("Ravune {} is available: Preferences → Extensions", r.tag));
+                        self.say_as(Tone::Action, tr!("Ravune {} is available: Preferences → Extensions", r.tag));
                     }
                     self.ext.release = Some(release);
                 }
                 Reply::Update(staged) => {
                     match &staged {
-                        Ok(_) => self.say(tr!("The update is ready: restart Ravune (Preferences → Extensions)")),
-                        Err(e) => self.say(tr!("Couldn't update: {}", e)),
+                        Ok(_) => self.say_as(Tone::Action, tr!("The update is ready: restart Ravune (Preferences → Extensions)")),
+                        Err(e) => self.say_as(Tone::Error, tr!("Couldn't update: {}", e)),
                     }
                     self.ext.update = Some(Some(staged));
                 }
@@ -453,7 +454,7 @@ impl App {
         let Some(path) = rfd::FileDialog::new().add_filter(tr!("Ravune extension"), &EXTENSIONS).pick_file() else { return };
         match std::fs::read(&path) {
             Ok(bytes) => self.install_extension(ctx, &bytes),
-            Err(e) => self.say(tr!("Can't read {}: {}", path.display(), e)),
+            Err(e) => self.say_as(Tone::Error, tr!("Can't read {}: {}", path.display(), e)),
         }
     }
 
@@ -466,12 +467,12 @@ impl App {
                     self.settings.themes.push(theme.clone());
                 }
                 self.library.refresh();
-                self.say(tr!("Installed {} {}", m.name, m.version));
+                self.say_as(Tone::Done, tr!("Installed {} {}", m.name, m.version));
                 if let Some(theme) = themes.into_iter().next() {
                     self.use_theme(ctx, theme);
                 }
             }
-            Err(e) => self.say(tr!("Couldn't install: {}", e)),
+            Err(e) => self.say_as(Tone::Error, tr!("Couldn't install: {}", e)),
         }
     }
 
@@ -481,9 +482,9 @@ impl App {
             Ok(()) => {
                 self.settings.themes.retain(|t| !names.contains(&t.name));
                 self.library.refresh();
-                self.say(tr!("Removed {}", name));
+                self.say_as(Tone::Done, tr!("Removed {}", name));
             }
-            Err(e) => self.say(tr!("Couldn't remove {}: {}", name, e)),
+            Err(e) => self.say_as(Tone::Error, tr!("Couldn't remove {}: {}", name, e)),
         }
     }
 
@@ -686,7 +687,7 @@ mod tests {
                 let before = app.session.project.clone();
                 let script = crate::script::Script::from_file(script.path());
                 app.run_script(&script);
-                assert!(app.toast.as_ref().is_some_and(|(t, _)| t.starts_with("Ran")), "{}: {:?}", script.name, app.toast);
+                assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Ran")), "{}: {:?}", script.name, app.toast);
                 assert_ne!(app.session.project, before, "{} changed nothing", script.name);
             }
         }

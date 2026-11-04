@@ -43,7 +43,8 @@ mod widgets;
 mod workspace;
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use crate::shell::Tone;
 
 use eframe::egui::{self, Event, Frame, Key, KeyboardShortcut, Modifiers, Response};
 use ravune_core::{MAX_TRACKS, Project, Session};
@@ -341,9 +342,8 @@ struct App {
     /// for the status bar when what it's over has none of its own.
     info_zone: String,
     info_zone_next: String,
-    toast: Option<(String, Instant)>,
-    /// What the toast's Undo button takes back, while it shows one; once it's clicked.
-    toast_action: Option<&'static str>,
+    toast: Option<shell::Toast>,
+    /// What a toast's button asked for, once it's clicked (its owner takes it).
     toast_acted: Option<&'static str>,
     // files
     file: Option<PathBuf>,
@@ -430,7 +430,6 @@ impl App {
             info_zone: String::new(),
             info_zone_next: String::new(),
             toast: None,
-            toast_action: None,
             toast_acted: None,
             file: None,
             saved: Project::default(),
@@ -533,21 +532,21 @@ impl App {
     fn run(&mut self, id: &str, props: Value) {
         self.user_edit(id);
         if let Err(e) = self.session.run(id, props) {
-            self.say(e);
+            self.say_as(Tone::Error, e);
         }
     }
 
     fn run_merge(&mut self, id: &str, props: Value, key: &str) {
         self.user_edit(id);
         if let Err(e) = self.session.run_merge(id, props, key) {
-            self.say(e);
+            self.say_as(Tone::Error, e);
         }
     }
 
     /// Runs an operator into the last undo step (see `Session::run_joined`).
     fn run_joined(&mut self, id: &str, props: Value) {
         if let Err(e) = self.session.run_joined(id, props) {
-            self.say(e);
+            self.say_as(Tone::Error, e);
         }
     }
 
@@ -558,18 +557,22 @@ impl App {
         }
     }
 
-    /// A toast. Operators' errors arrive in English: they're shown in the interface
-    /// language when the catalog has them.
+    /// A toast, to read and go on. Operators' errors arrive in English: they're shown in the
+    /// interface language when the catalog has them.
     fn say(&mut self, msg: impl Into<String>) {
+        self.say_as(shell::Tone::Info, msg);
+    }
+
+    /// A toast in a tone: done, waiting on the user, or gone wrong.
+    fn say_as(&mut self, tone: shell::Tone, msg: impl Into<String>) {
         let msg = msg.into();
-        self.toast = Some((i18n::lookup(&msg).map_or(msg, String::from), Instant::now()));
-        self.toast_action = None;
+        self.toast = Some(shell::Toast::new(tone, i18n::lookup(&msg).map_or(msg, String::from)));
     }
 
     /// A toast with an Undo: clicked, `what` lands in `toast_acted` for its owner to take.
     fn say_undo(&mut self, msg: impl Into<String>, what: &'static str) {
-        self.say(msg);
-        self.toast_action = Some(what);
+        self.say_as(shell::Tone::Done, msg);
+        self.toast = self.toast.take().map(|t| t.with_action(tr!("Undo"), what));
     }
 
     fn base_note(&self) -> u8 {
@@ -606,13 +609,13 @@ impl App {
                 if !self.settings.folders.contains(&folder) {
                     self.settings.folders.push(folder);
                 }
-                self.say(tr!("Added {} to the browser", path.display()));
+                self.say_as(Tone::Done, tr!("Added {} to the browser", path.display()));
             } else if files::EXTENSIONS.contains(&ext.as_str()) {
                 self.request(files::Pending::Open(path));
             } else if browser::AUDIO_EXTENSIONS.contains(&ext.as_str()) || ravune_core::INSTRUMENT_EXTENSIONS.contains(&ext.as_str()) {
                 self.dropped.push(path);
             } else {
-                self.say(tr!("Can't use {}: not audio, a project or a folder", path.display()));
+                self.say_as(Tone::Error, tr!("Can't use {}: not audio, a project or a folder", path.display()));
             }
         }
     }
@@ -697,7 +700,7 @@ impl App {
         for (channel, cc, value) in ccs {
             if let Some(target) = self.learning.take() {
                 self.run("midi.learn", json!({ "channel": channel, "cc": cc, "target": target }));
-                self.say(tr!("CC {} on channel {} now moves {}", cc, channel + 1, mixer::target_name(&self.session.project, target)));
+                self.say_as(Tone::Done, tr!("CC {} on channel {} now moves {}", cc, channel + 1, mixer::target_name(&self.session.project, target)));
                 continue;
             }
             let targets: Vec<ravune_core::Target> = self.session.project.midi_map.iter().filter(|m| m.cc == cc && m.channel == channel).map(|m| m.target).collect();
@@ -771,7 +774,7 @@ impl App {
             Some(other) => tr!("{} now runs {} (it was {})", keymap::text(&keys), label, i18n::t(other)),
             None => tr!("{} now runs {}", keymap::text(&keys), label),
         };
-        self.say(msg);
+        self.say_as(Tone::Done, msg);
     }
 
     /// Help for the Info bar: whatever the mouse is over or the keyboard has focused.
