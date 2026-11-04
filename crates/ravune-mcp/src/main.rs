@@ -3,91 +3,17 @@
 //! secret Ravune wrote into its data folder (`agent.json`, there while Preferences → Agents
 //! is on) and forwards each tool call to Ravune as one JSON line.
 
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
-use std::path::PathBuf;
+use std::io::{BufRead, Write};
 
+use ravune_mcp::{INSTRUCTIONS, PROTOCOLS, Ravune, tools};
 use serde_json::{Value, json};
-
-const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
-
-const INSTRUCTIONS: &str = "Ravune is a DAW. Every edit is an operator: find them with search_operators and run them with run_operator. \
-Read the project with query_project (ticks: 96 per beat, 24 per 16th step, 384 per bar), find sounds with browse_sounds and listen with \
-render_and_analyze. Everything you change until checkpoint is one undo step for the user.";
-
-/// Ravune's data folder, as the app finds it (eframe's storage dir, or `RAVUNE_DATA`).
-fn data_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("RAVUNE_DATA") {
-        return Some(dir.into());
-    }
-    let home = || std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("Ravune").join("data"))
-    } else if cfg!(target_os = "macos") {
-        home().map(|h| h.join("Library").join("Application Support").join("Ravune"))
-    } else {
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).or_else(|| home().map(|h| h.join(".local").join("share"))).map(|d| d.join("ravune"))
-    }
-}
-
-fn tools() -> Value {
-    let object = |props: Value, required: &[&str]| json!({ "type": "object", "properties": props, "required": required });
-    json!([
-        { "name": "search_operators", "description": "Find Ravune operators (every edit is one) by words in their id, label or description. Returns ids, descriptions and example props.",
-          "inputSchema": object(json!({ "query": { "type": "string", "description": "e.g. \"note\", \"mixer send\", \"tempo\"; empty lists all" } }), &[]) },
-        { "name": "run_operator", "description": "Run one operator with JSON props (see search_operators for examples). Edits until the next checkpoint undo together with one Ctrl+Z.",
-          "inputSchema": object(json!({ "id": { "type": "string" }, "props": { "type": "object" } }), &["id"]) },
-        { "name": "query_project", "description": "Read the project: a summary (tempo, key, channels, patterns, mixer), one pattern's notes, the playlist clips, or everything.",
-          "inputSchema": object(json!({ "what": { "type": "string", "enum": ["summary", "pattern", "clips", "full"] }, "index": { "type": "integer", "description": "pattern index for what=pattern (default: the current one)" } }), &[]) },
-        { "name": "browse_sounds", "description": "Search the sound library (built-in kit, the user's folders) by name. Paths go into channel.add's `sample`.",
-          "inputSchema": object(json!({ "query": { "type": "string" }, "limit": { "type": "integer" } }), &["query"]) },
-        { "name": "render_and_analyze", "description": "Render bars offline and describe them: peak and RMS level, energy per band, stereo width, onsets (in beats), key, tempo.",
-          "inputSchema": object(json!({ "bars": { "type": "number", "description": "default 4, at most 32" }, "from_bar": { "type": "number" }, "mode": { "type": "string", "enum": ["song", "pattern"] } }), &[]) },
-        { "name": "checkpoint", "description": "Close the current undo step: later edits undo separately.", "inputSchema": object(json!({}), &[]) },
-        { "name": "undo", "description": "Take back the last undo step (everything since the last checkpoint, if you edited).", "inputSchema": object(json!({}), &[]) },
-        { "name": "save_project", "description": "Save the project to its file (only if the user allowed files in Preferences → Agents).", "inputSchema": object(json!({}), &[]) },
-    ])
-}
-
-/// The line to Ravune, opened on the first tool call.
-struct Ravune {
-    lines: BufReader<TcpStream>,
-    out: TcpStream,
-    next: u64,
-}
-
-impl Ravune {
-    fn connect() -> Result<Self, String> {
-        let off = "Ravune isn't listening: open Ravune, then Preferences → Agents → \"Let agents use Ravune\"";
-        let file = data_dir().ok_or(off)?.join("agent.json");
-        let info: Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or(off)?;
-        let port = info["port"].as_u64().ok_or(off)? as u16;
-        let out = TcpStream::connect(("127.0.0.1", port)).map_err(|e| format!("{off} ({e})"))?;
-        let lines = BufReader::new(out.try_clone().map_err(|e| e.to_string())?);
-        let mut ravune = Self { lines, out, next: 1 };
-        ravune.call("hello", json!({ "token": info["token"] }))?;
-        Ok(ravune)
-    }
-
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.next;
-        self.next += 1;
-        writeln!(self.out, "{}", json!({ "id": id, "method": method, "params": params })).map_err(|e| e.to_string())?;
-        let mut line = String::new();
-        if self.lines.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-            return Err("Ravune closed the connection".into());
-        }
-        let reply: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-        match reply.get("error") {
-            Some(e) => Err(e.as_str().map_or_else(|| e.to_string(), String::from)),
-            None => Ok(reply["result"].clone()),
-        }
-    }
-}
 
 #[derive(Default)]
 struct Bridge {
     ravune: Option<Ravune>,
+    /// Ravune's data folder when it isn't the usual one (`--data`, which Ravune's chat passes:
+    /// clients start bridges with an environment of their own, `RAVUNE_DATA` may not reach it).
+    data: Option<std::path::PathBuf>,
 }
 
 impl Bridge {
@@ -95,11 +21,12 @@ impl Bridge {
     fn tool(&mut self, name: &str, args: Value) -> Result<Value, String> {
         for attempt in 0..2 {
             if self.ravune.is_none() {
-                self.ravune = Some(Ravune::connect()?);
+                self.ravune = Some(Ravune::connect(self.data.as_deref())?);
             }
-            match self.ravune.as_mut().unwrap().call(name, args.clone()) {
-                Err(e) if attempt == 0 && (e.contains("closed") || e.contains("os error")) => self.ravune = None,
-                result => return result,
+            match self.ravune.as_mut().map(|r| r.call(name, args.clone())) {
+                Some(Err(e)) if attempt == 0 && (e.contains("closed") || e.contains("os error")) => self.ravune = None,
+                Some(result) => return result,
+                None => unreachable!("connected above"),
             }
         }
         Err("Ravune isn't answering".into())
@@ -140,7 +67,9 @@ impl Bridge {
 }
 
 fn main() {
-    let mut bridge = Bridge::default();
+    let args: Vec<String> = std::env::args().collect();
+    let data = args.iter().position(|a| a == "--data").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from);
+    let mut bridge = Bridge { data, ..Default::default() };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -163,6 +92,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufReader;
     use std::net::TcpListener;
 
     /// A fake Ravune: checks the token, then echoes each method and its params back.

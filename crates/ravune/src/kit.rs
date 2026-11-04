@@ -254,6 +254,154 @@ pub fn icon_at(painter: &Painter, center: Pos2, icon: &str, size: f32, color: Co
     painter.galley(center - ink.center().to_vec2(), galley, color);
 }
 
+/// [`icon_at`], turned by `angle` (radians, clockwise) about its ink's centre: one caret
+/// serves open and closed.
+pub fn icon_turned(painter: &Painter, center: Pos2, icon: &str, size: f32, color: Color32, angle: f32) {
+    let galley = painter.layout_no_wrap(icon.to_string(), FontId::proportional(size), color);
+    let ink = galley.mesh_bounds.center().to_vec2();
+    let turn = egui::emath::Rot2::from_angle(angle);
+    painter.add(egui::epaint::TextShape::new(center - turn * ink, galley, color).with_angle(angle));
+}
+
+/// shadcn/ui's button variants.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Variant {
+    Secondary,
+    /// A border, no fill.
+    Outline,
+    /// Nothing until hovered.
+    Ghost,
+}
+
+/// A text button in one of the [`Variant`]s, with an optional leading icon.
+pub fn action(ui: &mut Ui, t: &Theme, variant: Variant, icon: Option<&str>, text: &str) -> Response {
+    action_sized(ui, t, variant, icon, text, None)
+}
+
+/// An [`action`] `width` wide (its content centered), or as wide as its content.
+pub fn action_sized(ui: &mut Ui, t: &Theme, variant: Variant, icon: Option<&str>, text: &str, width: Option<f32>) -> Response {
+    let font = Theme::body();
+    let text_w = ui.painter().layout_no_wrap(text.to_string(), font.clone(), t.fg_text).size().x;
+    let icon_w = if icon.is_some() { 20.0 } else { 0.0 };
+    let natural = text_w + icon_w + 3.0 * t.pad;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width.unwrap_or(natural), Theme::CONTROL_H), Sense::click());
+    let enabled = ui.is_enabled();
+    let h = if enabled { hover(ui, t, &resp) } else { 0.0 };
+    let (fill, stroke) = match variant {
+        Variant::Secondary => (Theme::mix(t.bg_control, t.fg_text, 0.08 * h), None),
+        Variant::Outline => (t.bg_control.gamma_multiply(h), Some(t.line)),
+        Variant::Ghost => (t.bg_control.gamma_multiply(h), None),
+    };
+    let color = if enabled { t.fg_text } else { t.fg_muted };
+    let shape = if resp.is_pointer_button_down_on() { rect.shrink(1.0) } else { rect };
+    let painter = ui.painter();
+    painter.rect_filled(shape, CornerRadius::same(t.radius_sm), fill);
+    if let Some(stroke) = stroke {
+        painter.rect_stroke(shape, CornerRadius::same(t.radius_sm), Stroke::new(1.0, stroke), StrokeKind::Inside);
+    }
+    let mut x = rect.left() + 1.5 * t.pad + ((rect.width() - natural) / 2.0).max(0.0);
+    if let Some(icon) = icon {
+        icon_at(painter, pos2(x + 7.0, rect.center().y), icon, Theme::TEXT_MD + 2.0, color);
+        x += icon_w;
+    }
+    painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, text, font, color);
+    focus_ring(ui, t, &resp, t.radius_sm);
+    resp.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, text));
+    resp
+}
+
+/// Buttons that share their row's width evenly: the actions under a section.
+pub fn actions(ui: &mut Ui, t: &Theme, items: &[(Variant, Option<&str>, &str)]) -> Vec<Response> {
+    let n = items.len().max(1) as f32;
+    let w = ((ui.available_width() - t.gap * (n - 1.0)) / n).max(0.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = t.gap;
+        items.iter().map(|(variant, icon, text)| action_sized(ui, t, *variant, *icon, text, Some(w))).collect()
+    })
+    .inner
+}
+
+/// A divider across a menu, edge to edge.
+pub fn menu_line(ui: &mut Ui, t: &Theme) {
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline(ui.max_rect().x_range(), r.center().y, Stroke::new(1.0, t.line));
+}
+
+/// A button as wide as where it sits that confirms once held for `hold_secs` (it fills up as
+/// it's held), then briefly shows `done_label`. True the frame it confirms.
+pub fn hold_button(ui: &mut Ui, t: &Theme, icon: Option<&str>, label: &str, done_label: &str, hold_secs: f32) -> bool {
+    #[derive(Clone, Default)]
+    struct HoldState {
+        started: Option<f64>,
+        released: Option<(f64, f32)>,
+        progress: f32,
+        done_until: Option<f64>,
+        needs_release: bool,
+    }
+
+    let font = Theme::body();
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.fg_text);
+    let done_galley = ui.painter().layout_no_wrap(done_label.to_string(), font, t.fg_text);
+    let icon_w = if icon.is_some() { 20.0 } else { 0.0 };
+    let size = vec2(ui.available_width().max(galley.size().x.max(done_galley.size().x) + icon_w + 2.0 * t.pad), Theme::CONTROL_H);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let enabled = ui.is_enabled();
+    let (now, primary, keyboard) = ui.input(|i| (i.time, i.pointer.primary_down(), i.key_down(egui::Key::Enter) || i.key_down(egui::Key::Space)));
+    let held = enabled && ((resp.is_pointer_button_down_on() && primary) || (resp.has_focus() && keyboard));
+    let id = resp.id;
+    let mut state = ui.data(|d| d.get_temp::<HoldState>(id)).unwrap_or_default();
+    let mut confirmed = false;
+    if let Some(until) = state.done_until {
+        state.needs_release = held;
+        if now >= until {
+            state.done_until = None;
+            state.progress = 0.0;
+        }
+    } else if held && !state.needs_release {
+        let started = *state.started.get_or_insert(now);
+        state.released = None;
+        state.progress = ((now - started) as f32 / hold_secs.max(0.001)).clamp(0.0, 1.0);
+        if state.progress >= 1.0 {
+            confirmed = true;
+            state.started = None;
+            state.done_until = Some(now + 1.2);
+            state.needs_release = true;
+        }
+    } else {
+        state.started = None;
+        if !held {
+            state.needs_release = false;
+        }
+        if state.progress > 0.0 {
+            let (at, from) = *state.released.get_or_insert((now, state.progress));
+            state.progress = from * (1.0 - ease(((now - at) / 0.2) as f32));
+        }
+    }
+    if held || state.progress > 0.0 || state.done_until.is_some() {
+        ui.ctx().request_repaint();
+    }
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(t.radius_sm), t.bg_control);
+    // it fills from the left as it's held: square, as everything here
+    let fill = Theme::mix(t.bg_control, t.meter_hot, 0.5);
+    if state.progress > 0.0 {
+        let filled = Rect::from_min_size(rect.min, vec2(rect.width() * state.progress, rect.height()));
+        painter.rect_filled(filled, CornerRadius::same(t.radius_sm), fill);
+    }
+    let done = state.done_until.is_some();
+    let galley = if done { done_galley } else { galley };
+    let color = if enabled { t.fg_text } else { t.fg_muted };
+    let x = rect.center().x - (icon_w + galley.size().x) / 2.0;
+    if let Some(icon) = icon {
+        icon_at(painter, pos2(x + 7.0, rect.center().y), icon, 15.0, color);
+    }
+    painter.galley(pos2(x + icon_w, rect.center().y - galley.size().y / 2.0), galley, color);
+    focus_ring(ui, t, &resp, t.radius_sm);
+    resp.widget_info(|| WidgetInfo::selected(Role::Button, enabled, done, if done { done_label } else { label }));
+    ui.data_mut(|d| d.insert_temp(id, state));
+    confirmed
+}
+
 pub fn icon_button(ui: &mut Ui, t: &Theme, icon: &str, label: &str, on: bool) -> Response {
     tinted_icon_button(ui, t, icon, label, on, t.accent)
 }

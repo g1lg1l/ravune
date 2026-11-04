@@ -130,6 +130,16 @@ const fn rgb(c: u32) -> Color32 {
 }
 
 impl Theme {
+    /// Nothing at all: where a fade ends.
+    pub const CLEAR: Color32 = Color32::TRANSPARENT;
+    /// Type scale beside egui's text styles: captions, small print, body, titles.
+    pub const TEXT_XS: f32 = 10.0;
+    pub const TEXT_SM: f32 = 11.0;
+    pub const TEXT_MD: f32 = 13.0;
+    pub const TEXT_LG: f32 = 15.0;
+    /// Buttons and fields.
+    pub const CONTROL_H: f32 = 24.0;
+
     /// The built-in themes, Ravune Dark first.
     pub fn builtins() -> [Theme; 4] {
         [Self::dark(), Self::light(), Self::scope(), Self::contrast()]
@@ -307,6 +317,20 @@ impl Theme {
     /// Monospace for numbers, values and readouts.
     pub fn mono(size: f32) -> FontId {
         FontId::monospace(size)
+    }
+
+    pub fn body() -> FontId {
+        FontId::proportional(Self::TEXT_MD)
+    }
+
+    pub fn small() -> FontId {
+        FontId::proportional(Self::TEXT_SM)
+    }
+
+    /// A light made of token colors, premultiplied, 0..1 (the AI chat's border beam).
+    pub fn premul([r, g, b, a]: [f32; 4]) -> Color32 {
+        let to = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        Color32::from_rgba_premultiplied(to(r), to(g), to(b), to(a))
     }
 
     /// Generates egui's visuals and style from our tokens.

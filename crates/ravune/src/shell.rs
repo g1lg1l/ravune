@@ -134,10 +134,7 @@ impl App {
                 }
                 let r = kit::icon_button(ui, &t, icons::QUESTION, tr!("Help: manual, shortcuts (F1), about"), self.show_help || self.show_manual);
                 Popup::menu(&r).show(|ui| self.help_menu(ui));
-                let r = kit::icon_button(ui, &t, icons::ROBOT, &self.tip(tr!("Agent chat"), "app.chat"), self.settings.show_chat);
-                if r.clicked() {
-                    self.command("app.chat");
-                }
+                self.chat_toggle(ui, &t);
                 let keys = self.settings.keymap.keys("app.palette").first().map(keymap::text).unwrap_or_default();
                 let r = kit::button(ui, &t, Some(icons::MAGNIFYING_GLASS), &tr!("Search commands   {}", keys), false);
                 if r.clicked() {
@@ -318,7 +315,7 @@ impl App {
             self.menu_command(ui, icon, i18n::t(label), command);
         }
         ui.separator();
-        for (label, command, on) in [(tr!("Browser"), "app.browser", self.settings.show_browser), (tr!("Editor area"), "app.editors", self.settings.show_editor), (tr!("On-screen keys"), "app.keys", self.settings.show_keys), (tr!("Visualizer"), "app.visualizer", self.settings.viz.show), (tr!("Agent chat"), "app.chat", self.settings.show_chat)] {
+        for (label, command, on) in [(tr!("Browser"), "app.browser", self.settings.show_browser), (tr!("Editor area"), "app.editors", self.settings.show_editor), (tr!("On-screen keys"), "app.keys", self.settings.show_keys), (tr!("Visualizer"), "app.visualizer", self.settings.viz.show), (tr!("AI chat"), "app.chat", self.settings.show_chat)] {
             let mut v = on;
             if ui.checkbox(&mut v, label).changed() {
                 self.command(command);
@@ -537,17 +534,20 @@ impl App {
     }
 
     /// Messages slide up from the bottom-right corner and fade away (React Bits' Animated Content).
+    /// One with an Undo stays a little longer, and its button takes the thing back.
     pub fn toast_ui(&mut self, ctx: &egui::Context) {
         let Some((msg, at)) = &self.toast else { return };
+        let action = self.toast_action;
+        let life = if action.is_some() { 6.0 } else { 4.0 };
         let age = at.elapsed().as_secs_f32();
-        if age > 4.0 {
-            self.toast = None;
+        if age > life {
+            (self.toast, self.toast_action) = (None, None);
             return;
         }
         let t = &self.theme;
-        let k = kit::ease((age / 0.22).min(1.0)).min(((4.0 - age) / 0.35).clamp(0.0, 1.0));
+        let k = kit::ease((age / 0.22).min(1.0)).min(((life - age) / 0.35).clamp(0.0, 1.0));
         let corner = ctx.content_rect().right_bottom() - vec2(t.pad * 2.0, 24.0 + t.pad * 2.0 - 12.0 * (1.0 - k));
-        egui::Area::new(Id::unique("toast")).order(egui::Order::Foreground).fixed_pos(corner).pivot(Align2::RIGHT_BOTTOM).interactable(false).show(ctx, |ui| {
+        let undo = egui::Area::new(Id::unique("toast")).order(egui::Order::Foreground).fixed_pos(corner).pivot(Align2::RIGHT_BOTTOM).interactable(action.is_some()).show(ctx, |ui| {
             ui.multiply_opacity(k);
             egui::Frame::new()
                 .fill(t.bg_device)
@@ -555,10 +555,21 @@ impl App {
                 .corner_radius(t.radius_md + 2)
                 .inner_margin(egui::Margin::symmetric(12, 8))
                 .shadow(ctx.global_style().visuals.popup_shadow)
-                .show(ui, |ui| ui.add(egui::Label::new(RichText::new(format!("{}  {msg}", icons::INFO)).color(t.fg_text)).extend()));
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(RichText::new(format!("{}  {msg}", icons::INFO)).color(t.fg_text)).extend());
+                        action.is_some() && kit::button(ui, t, Some(icons::ARROW_U_UP_LEFT), tr!("Undo"), false).clicked()
+                    })
+                    .inner
+                })
+                .inner
         });
+        if undo.inner {
+            self.toast_acted = action;
+            (self.toast, self.toast_action) = (None, None);
+        }
         // frames while it slides in and fades out; in between it just waits
-        let (fade_in, fade_out) = (0.22, 4.0 - 0.35);
+        let (fade_in, fade_out) = (0.22, life - 0.35);
         let wait = if age < fade_in || age > fade_out { 0.016 } else { fade_out - age };
         ctx.request_repaint_after(Duration::from_secs_f32(wait));
     }

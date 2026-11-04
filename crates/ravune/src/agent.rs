@@ -179,6 +179,30 @@ pub fn bridge() -> PathBuf {
     crate::extensions::sibling("mcp")
 }
 
+/// What adds Ravune to Claude Code in every folder: without `--scope user` it's there only in
+/// the folder the command ran in.
+pub fn claude_command() -> String {
+    format!("claude mcp add --scope user ravune -- \"{}\"", bridge().display())
+}
+
+/// Ravune as an entry of the MCP servers that Claude Desktop, Cursor and others keep in a file.
+pub fn mcp_json() -> String {
+    serde_json::to_string_pretty(&json!({ "mcpServers": { "ravune": { "command": bridge().to_string_lossy() } } })).unwrap_or_default()
+}
+
+/// Bytes as base64: a picture for a model.
+pub fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            out.push(if i <= chunk.len() { ABC[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
 impl App {
     /// Keeps the server in step with the preferences and answers what came in.
     pub fn poll_agent(&mut self, ctx: &egui::Context, now: f64) {
@@ -413,7 +437,7 @@ impl App {
             ui.label(RichText::new(format!("{}  {status}", icons::ROBOT)).color(if self.agents_connected().is_some() { t.select } else { t.fg_muted }));
         });
         kit::section(ui, t, tr!("SET UP"), false, |ui| {
-            let command = format!("claude mcp add ravune -- \"{}\"", bridge().display());
+            let command = claude_command();
             ui.label(RichText::new(tr!("In Claude Code (or any MCP client), add the bridge next to Ravune:")).small().color(t.fg_muted));
             // the button first (right to left), so the command shortens into what's left and
             // never pushes the window wider
@@ -444,5 +468,20 @@ impl App {
                 self.agent.log.clear();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_matches_the_standard() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(&[0xff, 0xfe, 0x00]), "//4A");
     }
 }

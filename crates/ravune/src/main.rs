@@ -10,6 +10,7 @@
 mod i18n;
 
 mod agent;
+mod ai;
 mod browser;
 mod chat;
 mod clipprops;
@@ -22,9 +23,11 @@ mod icons;
 mod keymap;
 mod kit;
 mod lessons;
+mod markdown;
 mod midi;
 mod mixer;
 mod online;
+mod orb;
 mod plugins;
 mod pianoroll;
 mod playlist;
@@ -151,6 +154,8 @@ struct Settings {
     export_format: export::Format,
     /// Agents (MCP): off until the user turns them on.
     agent: agent::Prefs,
+    /// Who answers in the AI chat, with which model, how hard it thinks.
+    ai: ai::Prefs,
     /// Lessons finished (by title).
     lessons_done: Vec<String>,
     /// Ask GitHub for a newer release at start.
@@ -196,6 +201,7 @@ impl Default for Settings {
             language: i18n::Lang::default(),
             export_format: export::Format::default(),
             agent: agent::Prefs::default(),
+            ai: ai::Prefs::default(),
             lessons_done: Vec::new(),
             check_updates: true,
             inspector: true,
@@ -284,7 +290,7 @@ struct App {
     auto_last: Option<(ravune_core::Target, usize, u32)>,
     /// MCP clients talking to Ravune: the server, the log, the agent's undo group.
     agent: agent::Agent,
-    /// The agent chat: the conversation and the reply on its way.
+    /// The AI chat: the conversations and the reply on its way.
     chat: chat::Chat,
     /// The extension gallery and the update check.
     ext: extensions::Online,
@@ -327,6 +333,9 @@ struct App {
     info_zone: String,
     info_zone_next: String,
     toast: Option<(String, Instant)>,
+    /// What the toast's Undo button takes back, while it shows one; once it's clicked.
+    toast_action: Option<&'static str>,
+    toast_acted: Option<&'static str>,
     // files
     file: Option<PathBuf>,
     saved: Project,
@@ -410,6 +419,8 @@ impl App {
             info_zone: String::new(),
             info_zone_next: String::new(),
             toast: None,
+            toast_action: None,
+            toast_acted: None,
             file: None,
             saved: Project::default(),
             autosaved: Project::default(),
@@ -541,6 +552,13 @@ impl App {
     fn say(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         self.toast = Some((i18n::lookup(&msg).map_or(msg, String::from), Instant::now()));
+        self.toast_action = None;
+    }
+
+    /// A toast with an Undo: clicked, `what` lands in `toast_acted` for its owner to take.
+    fn say_undo(&mut self, msg: impl Into<String>, what: &'static str) {
+        self.say(msg);
+        self.toast_action = Some(what);
     }
 
     fn base_note(&self) -> u8 {
@@ -568,6 +586,8 @@ impl App {
             return;
         }
         self.drop_at = os_cursor(ctx);
+        // pictures dropped on the open AI chat go with the next message
+        let files = self.chat_take_drop(self.drop_at, files);
         for path in files {
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase).unwrap_or_default();
             if path.is_dir() {
