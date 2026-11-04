@@ -62,6 +62,8 @@ Approachable on day one, deep enough for a lifetime. Free and open source, forev
 <sub>One loop, three waveform styles (Preferences → Look): mono, RGB, 3-band</sub>
 </p>
 
+> **Making visuals too?** [Velo](https://github.com/g1lg1l/velo), from the same maker, turns your music into live visuals: every kick, bassline and melody moves the picture.
+
 ## Get it
 
 [Releases](https://github.com/g1lg1l/ravune/releases) has the 0.9.1 beta: an installer for Windows, a disk image for macOS (Apple Silicon) and a tarball for Linux. They aren't signed yet: on Windows, SmartScreen's More info → Run anyway; on macOS, right-click Ravune → Open the first time.

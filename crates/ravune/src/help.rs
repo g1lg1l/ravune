@@ -6,6 +6,8 @@ use crate::theme::Theme;
 use crate::{App, icons, kit, widgets};
 
 const SOURCE: &str = "https://github.com/g1lg1l/ravune";
+/// Velo, the sister app for live visuals.
+const VELO: &str = "https://g1lg1l.github.io/velo/";
 
 /// A chapter: icon, title, a line on what it's for, then its steps (title, how).
 type Chapter = (&'static str, &'static str, &'static str, &'static [(&'static str, &'static str)]);
@@ -260,6 +262,11 @@ impl App {
             ui.hyperlink_to(format!("{}  {}", icons::ARROW_SQUARE_OUT, tr!("Source on GitHub")), SOURCE);
             ui.label(RichText::new(tr!("Free and open source: MIT or Apache-2.0, your pick.")).small().color(t.fg_muted));
             ui.label(RichText::new(tr!("Built with egui, cpal, symphonia, clack and vst3 · icons by Phosphor · motion after React Bits · the built-in kit is CC0.")).small().color(t.fg_muted));
+            // the sister app: same maker, same spirit, for the picture side of a set
+            ui.add_space(t.gap);
+            kit::caps(ui, &t, tr!("SISTER PROJECT"));
+            ui.label(RichText::new(tr!("Making visuals too? Velo, from the same maker, turns your music into live visuals: every kick, bassline and melody moves the picture.")).color(t.fg_text));
+            ui.hyperlink_to(format!("{}  {}", icons::ARROW_SQUARE_OUT, tr!("Velo · sound shapes light")), VELO);
         });
         if close {
             self.show_about = false;

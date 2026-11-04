@@ -1496,6 +1496,9 @@ pub static STRINGS: &[(&str, &str)] = &[
     ("Add a reverb bus for the snare", "Aggiungi un bus di riverbero per il rullante"),
     ("Write a bassline in A minor", "Scrivi una linea di basso in La minore"),
     ("{} s · 1 step", "{} s · 1 passo"),
+    ("SISTER PROJECT", "PROGETTO GEMELLO"),
+    ("Making visuals too? Velo, from the same maker, turns your music into live visuals: every kick, bassline and melody moves the picture.", "Fai anche visual? Velo, dallo stesso autore, trasforma la tua musica in visual dal vivo: ogni cassa, linea di basso e melodia muove l'immagine."),
+    ("Velo · sound shapes light", "Velo · il suono dà forma alla luce"),
     // osc.rs
     ("OSC", "OSC"),
     ("OSC can't listen on port {}: {}", "L'OSC non può ascoltare sulla porta {}: {}"),
