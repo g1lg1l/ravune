@@ -2,7 +2,7 @@
 //! bar. Each remembers its layout: which panels are open, the docked and split editors,
 //! the floating windows, the browser tab. Switching saves the one you leave.
 
-use eframe::egui::{Frame, Id, Popup, RichText, Ui};
+use eframe::egui::{Frame, Id, RichText, Ui};
 use serde::{Deserialize, Serialize};
 
 use crate::browser::Tab as BrowserTab;
@@ -105,7 +105,7 @@ impl App {
         }
         let tip = self.tip(tr!("Workspaces: new, rename, reset, delete · switch"), "workspace.next");
         let r = kit::icon_button(ui, t, icons::CARET_DOWN, &tip, false);
-        Popup::menu(&r).show(|ui| self.workspace_menu(ui));
+        kit::menu(t, &r).show(|ui| self.workspace_menu(ui));
     }
 
     fn workspace_menu(&mut self, ui: &mut Ui) {

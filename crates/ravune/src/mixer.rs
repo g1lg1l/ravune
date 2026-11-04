@@ -2,7 +2,7 @@
 //! page (macros, LFOs, mappings). Every edit is an operator.
 
 use eframe::egui::{
-    self, Align, Align2, Color32, ComboBox, CornerRadius, FontId, Frame, Layout, Popup, Pos2, Rect, Response, RichText, ScrollArea, Sense,
+    self, Align, Align2, Color32, ComboBox, CornerRadius, FontId, Frame, Layout, Pos2, Rect, Response, RichText, ScrollArea, Sense,
     Shape, Stroke, StrokeKind, Ui, UiBuilder, epaint::CubicBezierShape, pos2, vec2,
 };
 use ravune_core::{BAR, Clip, ClipKind, Curve, Device, DeviceKind, Instrument, MAX_LFOS, MAX_TRACKS, PATTERN_COLORS, PPQ, ParamInfo, Project, Source, Target};
@@ -674,10 +674,10 @@ impl App {
                     self.mixer_fx = false;
                 }
                 let r = kit::button(ui, t, Some(icons::PLUS), tr!("Effect"), false);
-                Popup::menu(&r).show(|ui| self.effect_menu(ui, track));
+                kit::menu(t, &r).show(|ui| self.effect_menu(ui, track));
                 self.hint(&r, tr!("Add an effect to the end of this track's chain."));
                 let r = kit::button(ui, t, Some(icons::ARROWS_IN_LINE_VERTICAL), tr!("Duck to…"), false);
-                Popup::menu(&r).show(|ui| self.duck_menu(ui, track));
+                kit::menu(t, &r).show(|ui| self.duck_menu(ui, track));
                 self.hint(&r, tr!("Sidechain in one click: this track dips every time the track you pick plays (bass under the kick)."));
             });
         });
@@ -725,10 +725,10 @@ impl App {
             ui.add(egui::Label::new(RichText::new(&tr.name).color(t.accent)).truncate());
             kit::right(ui, |ui| {
                 let r = kit::button(ui, t, Some(icons::PLUS), tr!("Effect"), false);
-                Popup::menu(&r).show(|ui| self.effect_menu(ui, track));
+                kit::menu(t, &r).show(|ui| self.effect_menu(ui, track));
                 self.hint(&r, tr!("Add an effect to the end of this track's chain."));
                 let r = kit::button(ui, t, Some(icons::ARROWS_IN_LINE_VERTICAL), tr!("Duck to…"), false);
-                Popup::menu(&r).show(|ui| self.duck_menu(ui, track));
+                kit::menu(t, &r).show(|ui| self.duck_menu(ui, track));
                 self.hint(&r, tr!("Sidechain in one click: this track dips every time the track you pick plays (bass under the kick)."));
             });
         });

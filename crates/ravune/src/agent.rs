@@ -420,11 +420,12 @@ impl App {
     pub fn prefs_agents(&mut self, ui: &mut Ui, t: &Theme) {
         kit::section(ui, t, tr!("AGENTS (MCP)"), true, |ui| {
             let a = &mut self.settings.agent;
-            ui.checkbox(&mut a.enabled, tr!("Let agents use Ravune (Claude and other MCP clients)"));
-            ui.label(RichText::new(tr!("They can search and run any command, read the project, find sounds and listen to a render. Everything an agent changes undoes in one step.")).small().color(t.fg_muted));
+            kit::setting(ui, t, tr!("Let agents use Ravune (Claude and other MCP clients)"), tr!("They can search and run any command, read the project, find sounds and listen to a render. Everything an agent changes undoes in one step."), |ui| {
+                kit::switch(ui, t, &mut a.enabled, tr!("Let agents use Ravune (Claude and other MCP clients)"))
+            });
             ui.add_enabled_ui(a.enabled, |ui| {
-                ui.checkbox(&mut a.edit, tr!("May change the project"));
-                ui.checkbox(&mut a.files, tr!("May save the project"));
+                kit::setting(ui, t, tr!("May change the project"), "", |ui| kit::switch(ui, t, &mut a.edit, tr!("May change the project")));
+                kit::setting(ui, t, tr!("May save the project"), "", |ui| kit::switch(ui, t, &mut a.files, tr!("May save the project")));
                 ui.horizontal(|ui| {
                     ui.label(tr!("Port"));
                     ui.add(egui::DragValue::new(&mut a.port).range(1024..=65535));

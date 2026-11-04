@@ -1,6 +1,6 @@
 //! Channel rack (FL-style step sequencer) and the device view of the selected channel.
 
-use eframe::egui::{self, Align2, CornerRadius, FontId, Frame, Id, Key, Popup, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, CornerRadius, FontId, Frame, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use ravune_core::{Curve, DEFAULT_VELOCITY, INSTRUMENT_EXTENSIONS, Instrument, MAX_STEPS, Note, PATTERN_COLORS, Param, ParamInfo, STEP, Target};
 use serde_json::json;
 
@@ -195,7 +195,7 @@ impl App {
         let current = self.session.pattern;
         let list: Vec<(String, Option<[u8; 3]>)> = self.session.project.patterns.iter().map(|p| (p.name.clone(), p.color)).collect();
         let r = kit::swatch(ui, t, Theme::pattern(current, list[current].1), 18.0, tr!("Pattern color"));
-        Popup::menu(&r).show(|ui| self.pattern_color_menu(ui, current));
+        kit::menu(t, &r).show(|ui| self.pattern_color_menu(ui, current));
         egui::ComboBox::from_id_salt(salt)
             .selected_text(format!("{}  {}", icons::SQUARES_FOUR, list[current].0))
             .width(150.0)

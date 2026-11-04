@@ -520,7 +520,7 @@ impl App {
                 });
                 self.hint(&r.response, tr!("The mixer track this sound plays into."));
                 let r = kit::button(ui, t, Some(icons::PLUS), tr!("Effect"), false);
-                egui::Popup::menu(&r).show(|ui| {
+                kit::menu(t, &r).show(|ui| {
                     for kind in DeviceKind::ALL {
                         if ui.button(crate::i18n::t(kind.name())).clicked() {
                             let at = self.sound_track(s);

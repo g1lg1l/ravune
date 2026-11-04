@@ -330,6 +330,88 @@ pub fn actions(ui: &mut Ui, t: &Theme, items: &[(Variant, Option<&str>, &str)]) 
     .inner
 }
 
+/// The narrowest a menu gets.
+const MENU_W: f32 = 200.0;
+
+/// How every menu sets its lines (Velo's): one row height, rows flush edge to edge with the
+/// same inset, square, a tint (not the accent's fill) on the one chosen.
+pub fn menu_rows(t: &Theme) -> egui::style::StyleModifier {
+    let (row, pad, gap) = (t.row_h, t.pad, t.gap);
+    let (hover, chosen, text) = (Theme::mix(t.bg_device, t.fg_text, 0.06), Theme::mix(t.bg_device, t.select, 0.18), t.fg_text);
+    let rows = move |s: &mut egui::Style| {
+        egui::containers::menu::menu_style(s);
+        // a line is as long as its words: the menu widens, nothing wraps
+        s.wrap_mode = Some(egui::TextWrapMode::Extend);
+        s.spacing.menu_margin = egui::Margin::symmetric(0, gap as i8);
+        s.spacing.button_padding = vec2(pad * 1.5, 0.0);
+        s.spacing.interact_size.y = row;
+        s.spacing.item_spacing.y = 0.0;
+        let w = &mut s.visuals.widgets;
+        for state in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+            state.corner_radius = CornerRadius::ZERO;
+        }
+        for state in [&mut w.hovered, &mut w.active, &mut w.open] {
+            (state.weak_bg_fill, state.bg_fill) = (hover, hover);
+            state.bg_stroke = Stroke::NONE;
+        }
+        s.visuals.selection.bg_fill = chosen;
+        s.visuals.selection.stroke = Stroke::new(1.0, text);
+    };
+    rows.into()
+}
+
+/// A dropdown under `r`, at least as wide as it, its lines as every menu's.
+pub fn menu<'a>(t: &Theme, r: &Response) -> egui::Popup<'a> {
+    egui::Popup::menu(r).style(menu_rows(t)).width(r.rect.width().max(MENU_W))
+}
+
+/// A switch, Ravune's way: a square track that lights in the accent, a square cap that slides
+/// over and settles with a little overshoot, like a hardware toggle.
+pub fn switch(ui: &mut Ui, t: &Theme, on: &mut bool, label: &str) -> Response {
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(34.0, 18.0), Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let enabled = ui.is_enabled();
+    let k = ui.ctx().animate_bool_with_time(resp.id.with("switch"), *on, t.motion * 1.5);
+    let h = if enabled { hover(ui, t, &resp) } else { 0.0 };
+    let x = if *on { spring(k) } else { 1.0 - spring(1.0 - k) };
+    let painter = ui.painter();
+    let track = Theme::mix(Theme::mix(t.bg_field, t.fg_text, 0.08 * h), t.accent, 0.85 * k);
+    painter.rect_filled(rect, CornerRadius::same(t.radius_sm), track);
+    painter.rect_stroke(rect, CornerRadius::same(t.radius_sm), Stroke::new(1.0, Theme::mix(t.line, t.accent, k)), StrokeKind::Inside);
+    let cap = Rect::from_center_size(pos2(rect.left() + 9.0 + x * (rect.width() - 18.0), rect.center().y), vec2(14.0, 14.0));
+    let ink = if enabled { Theme::mix(t.fg_muted, t.fg_text, 0.4 + 0.6 * k.max(h)) } else { t.fg_muted.gamma_multiply(0.5) };
+    painter.rect_filled(cap, CornerRadius::same(t.radius_sm), ink);
+    focus_ring(ui, t, &resp, t.radius_sm);
+    resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, *on, label));
+    resp.on_hover_text(label)
+}
+
+/// A setting as a row: its title and what it does on the left, its control on the right.
+pub fn setting<R>(ui: &mut Ui, t: &Theme, title: &str, detail: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let out = ui
+        .horizontal_top(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                let out = add(ui);
+                ui.add_space(t.pad * 2.0);
+                ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.label(RichText::new(title).font(Theme::body()).color(t.fg_text));
+                    if !detail.is_empty() {
+                        ui.add(egui::Label::new(RichText::new(detail).small().color(t.fg_muted)).wrap());
+                    }
+                });
+                out
+            })
+            .inner
+        })
+        .inner;
+    ui.add_space(t.gap);
+    out
+}
+
 /// A divider across a menu, edge to edge.
 pub fn menu_line(ui: &mut Ui, t: &Theme) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());

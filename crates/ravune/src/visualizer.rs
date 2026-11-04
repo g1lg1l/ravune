@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, CornerRadius, Id, Popup, Rect, RichText, Sense, Stroke, Ui, pos2};
+use eframe::egui::{self, CornerRadius, Id, Rect, RichText, Sense, Stroke, Ui, pos2};
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, ScreenDescriptor, wgpu};
 use ravune_engine::Engine;
 use realfft::num_complex::Complex;
@@ -270,7 +270,7 @@ impl App {
                     prefs.show = false;
                 }
                 let r = kit::icon_button(ui, &t, icons::LAYOUT, tr!("Where it goes"), false);
-                Popup::menu(&r).show(|ui| {
+                kit::menu(&t, &r).show(|ui| {
                     for (dock, icon, label) in DOCKS {
                         if ui.selectable_label(prefs.dock == dock, format!("{icon}  {}", crate::i18n::t(label))).clicked() {
                             prefs.dock = dock;

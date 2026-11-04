@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Align2, ComboBox, CornerRadius, FontId, Id, Key, Modifiers, Popup, RichText, Sense, Stroke, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, ComboBox, CornerRadius, FontId, Id, Key, Modifiers, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use crate::keymap::{self, COMMANDS, Keymap, Preset};
 use ravune_core::{OPERATORS, PPQ};
@@ -156,22 +156,22 @@ impl App {
             widgets::logo(ui, &t, self.beat.map(|b| (b / 4.0).fract() as f32));
             kit::vsep(ui, &t);
             let r = kit::button(ui, &t, Some(icons::FILE), tr!("File"), false);
-            Popup::menu(&r).show(|ui| self.file_menu(ui));
+            kit::menu(&t, &r).show(|ui| self.file_menu(ui));
             let r = kit::button(ui, &t, None, tr!("Edit"), false);
-            Popup::menu(&r).show(|ui| self.edit_menu(ui));
+            kit::menu(&t, &r).show(|ui| self.edit_menu(ui));
             let r = kit::button(ui, &t, None, tr!("Create"), false);
-            Popup::menu(&r).show(|ui| self.create_menu(ui));
+            kit::menu(&t, &r).show(|ui| self.create_menu(ui));
             let r = kit::button(ui, &t, None, tr!("View"), false);
-            Popup::menu(&r).show(|ui| self.view_menu(ui));
+            kit::menu(&t, &r).show(|ui| self.view_menu(ui));
             let r = kit::button(ui, &t, None, tr!("Help"), false);
-            Popup::menu(&r).show(|ui| self.help_menu(ui));
+            kit::menu(&t, &r).show(|ui| self.help_menu(ui));
             kit::right(ui, |ui| {
                 let r = kit::icon_button(ui, &t, icons::GEAR_SIX, &self.tip(tr!("Preferences"), "app.preferences"), self.show_settings);
                 if r.clicked() {
                     self.toggle_preferences();
                 }
                 let r = kit::icon_button(ui, &t, icons::QUESTION, tr!("Help: manual, shortcuts (F1), about"), self.show_help || self.show_manual);
-                Popup::menu(&r).show(|ui| self.help_menu(ui));
+                kit::menu(&t, &r).show(|ui| self.help_menu(ui));
                 self.chat_toggle(ui, &t);
                 let keys = self.settings.keymap.keys("app.palette").first().map(keymap::text).unwrap_or_default();
                 let r = kit::button(ui, &t, Some(icons::MAGNIFYING_GLASS), &tr!("Search commands   {}", keys), false);

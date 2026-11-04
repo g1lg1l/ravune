@@ -1502,7 +1502,8 @@ pub static STRINGS: &[(&str, &str)] = &[
     // osc.rs
     ("OSC", "OSC"),
     ("OSC can't listen on port {}: {}", "L'OSC non può ascoltare sulla porta {}: {}"),
-    ("Listen for OSC (TouchOSC, controller editors, any tool that sends it)", "Ascolta l'OSC (TouchOSC, editor dei controller, qualsiasi strumento che lo invia)"),
+    ("Listen for OSC", "Ascolta l'OSC"),
+    ("From TouchOSC on a phone, a controller's editor or any tool that sends OSC.", "Da TouchOSC sul telefono, dall'editor di un controller o da qualsiasi strumento che invia OSC."),
     ("Send to {} · last: {} {} s ago{}", "Invia a {} · ultimo: {} {} s fa{}"),
     ("Send to {} · nothing yet", "Invia a {} · ancora niente"),
     ("OSC ADDRESSES", "INDIRIZZI OSC"),

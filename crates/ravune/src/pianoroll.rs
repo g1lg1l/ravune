@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use eframe::egui::{self, Align2, CornerRadius, CursorIcon, Key, Modifiers, Popup, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, CornerRadius, CursorIcon, Key, Modifiers, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2};
 use ravune_core::{CHORDS, NOTE_NAMES, PPQ, STEP, Scale, Target, bend_spots, curve_at, curve_samples, insert_point, note_name, remove_point};
 use serde_json::json;
 
@@ -190,7 +190,7 @@ impl App {
             });
             self.hint(&r.response, tr!("Chord stamp: a click draws the whole chord from the key you click (Fold to scale keeps it in key)."));
             let r = kit::button(ui, &t, Some(icons::MAGIC_WAND), tr!("Tools"), false);
-            Popup::menu(&r).show(|ui| {
+            kit::menu(&t, &r).show(|ui| {
                 let grid = self.piano.grid(ui).max(STEP / 4);
                 for (label, op, props, help) in [
                     (tr!("Quantize"), "notes.quantize", json!({ "grid": grid }), tr!("Every note start onto the grid")),
@@ -654,7 +654,7 @@ impl App {
         }
         let pick = pick_row(ui, Lane::ALL.len(), "AUTO", self.piano.auto.is_some());
         let lines: Vec<(Target, String)> = self.session.current_pattern().automation.iter().map(|a| (a.target, crate::mixer::target_name(&self.session.project, a.target))).collect();
-        Popup::menu(&pick).show(|ui| {
+        kit::menu(t, &pick).show(|ui| {
             ui.label(RichText::new(tr!("Knobs moving in this pattern")).small());
             for (target, name) in &lines {
                 if ui.selectable_label(self.piano.auto == Some(*target), name).clicked() {

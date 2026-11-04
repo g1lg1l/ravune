@@ -279,7 +279,7 @@ impl App {
     pub fn prefs_osc(&mut self, ui: &mut Ui, t: &Theme) {
         kit::section(ui, t, tr!("OSC"), false, |ui| {
             let o = &mut self.settings.osc;
-            ui.checkbox(&mut o.enabled, tr!("Listen for OSC (TouchOSC, controller editors, any tool that sends it)"));
+            kit::setting(ui, t, tr!("Listen for OSC"), tr!("From TouchOSC on a phone, a controller's editor or any tool that sends OSC."), |ui| kit::switch(ui, t, &mut o.enabled, tr!("Listen for OSC")));
             ui.add_enabled_ui(o.enabled, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr!("Port"));

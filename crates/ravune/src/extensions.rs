@@ -559,6 +559,7 @@ impl App {
         }
 
         kit::section(ui, t, tr!("UPDATES"), false, |_| {});
+        kit::setting(ui, t, tr!("Check when Ravune starts"), "", |ui| kit::switch(ui, t, &mut self.settings.check_updates, tr!("Check when Ravune starts")));
         ui.horizontal(|ui| {
             if kit::button(ui, t, Some(icons::ARROW_CLOCKWISE), tr!("Check now"), false).clicked() && !self.ext.checking {
                 self.check_updates(ui.ctx());
@@ -566,7 +567,6 @@ impl App {
             if self.ext.checking {
                 ui.spinner();
             }
-            ui.checkbox(&mut self.settings.check_updates, tr!("Check when Ravune starts"));
         });
         let (mut restart, mut download) = (false, None);
         match (&self.ext.release, &self.ext.update) {
