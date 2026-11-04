@@ -17,7 +17,7 @@ const fn cmd(group: &'static str, id: &'static str, label: &'static str) -> Comm
     Command { id, label, group }
 }
 
-pub const COMMANDS: [Command; 35] = [
+pub const COMMANDS: [Command; 36] = [
     cmd("Transport", "transport.play_toggle", "Play / stop (besides Space)"),
     cmd("Transport", "transport.mode_toggle", "Pattern / song mode"),
     cmd("Transport", "transport.metronome_toggle", "Metronome"),
@@ -47,12 +47,13 @@ pub const COMMANDS: [Command; 35] = [
     cmd("Layout", "app.editors", "Fold / open the editors"),
     cmd("Layout", "app.keys", "Show / hide the keys"),
     cmd("Layout", "app.visualizer", "Show / hide the visualizer"),
-    cmd("Layout", "app.chat", "Agent chat"),
+    cmd("Layout", "app.chat", "AI chat"),
     cmd("Layout", "workspace.next", "Next workspace"),
     cmd("Layout", "workspace.prev", "Previous workspace"),
     cmd("Find", "app.palette", "Command palette"),
     cmd("Find", "app.search", "Search the browser"),
     cmd("Find", "app.preferences", "Preferences"),
+    cmd("Find", "app.specimen", "Specimen board: every widget in its states"),
 ];
 
 /// Keys that aren't commands. Shown on the F1 sheet after the commands.

@@ -36,6 +36,7 @@ mod record;
 mod script;
 mod rack;
 mod shell;
+mod specimen;
 mod theme;
 mod usage;
 mod visualizer;
@@ -302,6 +303,8 @@ struct App {
     osc: Option<osc::Osc>,
     /// The app's own CPU, memory and GPU, for the status bar.
     usage: usage::Usage,
+    /// The specimen board, while it's open.
+    specimen: Option<specimen::Specimen>,
     /// The extension gallery and the update check.
     ext: extensions::Online,
     midi: midi::Midi,
@@ -398,6 +401,7 @@ impl App {
             chat: chat::Chat::default(),
             osc: None,
             usage: usage::Usage::new(),
+            specimen: specimen::Specimen::from_env(),
             ext: extensions::Online::default(),
             midi: midi::Midi::default(),
             midi_sink: MidiSink::default(),
@@ -569,6 +573,20 @@ impl App {
         self.toast = Some(shell::Toast::new(tone, i18n::lookup(&msg).map_or(msg, String::from)));
     }
 
+    /// The specimen board, while it's open; the toasts it asks for.
+    fn specimen_ui(&mut self, ctx: &egui::Context, cost: Option<f32>) {
+        let Some(board) = &mut self.specimen else { return };
+        let (open, toast) = board.show(ctx, &self.theme, cost);
+        if !open {
+            self.specimen = None;
+        }
+        match toast {
+            Some(shell::Tone::Done) => self.say_undo(tr!("Chat deleted"), "specimen"),
+            Some(tone) => self.say_as(tone, tr!("A toast in its tone: it holds while hovered, a click sends it away.")),
+            None => {}
+        }
+    }
+
     /// A toast with an Undo: clicked, `what` lands in `toast_acted` for its owner to take.
     fn say_undo(&mut self, msg: impl Into<String>, what: &'static str) {
         self.say_as(shell::Tone::Done, msg);
@@ -656,6 +674,7 @@ impl App {
             "app.editors" => self.settings.show_editor = !self.settings.show_editor,
             "app.keys" => self.settings.show_keys = !self.settings.show_keys,
             "app.visualizer" => self.settings.viz.show = !self.settings.viz.show,
+            "app.specimen" => self.specimen = if self.specimen.is_some() { None } else { Some(specimen::Specimen::default()) },
             "app.chat" => {
                 self.settings.show_chat = !self.settings.show_chat;
                 self.chat.focus = self.settings.show_chat;
@@ -905,7 +924,7 @@ impl eframe::App for App {
         self.apply_ccs();
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = ui.input(|i| i.time);
         files::capture_to_file(&ctx);
@@ -994,6 +1013,7 @@ impl eframe::App for App {
         self.rename_dialog(&ctx);
         self.palette_ui(&ctx);
         self.file_modals(&ctx);
+        self.specimen_ui(&ctx, frame.info().cpu_usage);
         self.toast_ui(&ctx);
         kit::sparks(&ctx, &mut self.sparks, now);
         self.sync_engine();
