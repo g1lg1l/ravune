@@ -28,6 +28,7 @@ mod midi;
 mod mixer;
 mod online;
 mod orb;
+mod osc;
 mod plugins;
 mod pianoroll;
 mod playlist;
@@ -156,6 +157,8 @@ struct Settings {
     agent: agent::Prefs,
     /// Who answers in the AI chat, with which model, how hard it thinks.
     ai: ai::Prefs,
+    /// OSC in: off until the user turns it on.
+    osc: osc::Prefs,
     /// Lessons finished (by title).
     lessons_done: Vec<String>,
     /// Ask GitHub for a newer release at start.
@@ -202,6 +205,7 @@ impl Default for Settings {
             export_format: export::Format::default(),
             agent: agent::Prefs::default(),
             ai: ai::Prefs::default(),
+            osc: osc::Prefs::default(),
             lessons_done: Vec::new(),
             check_updates: true,
             inspector: true,
@@ -292,6 +296,8 @@ struct App {
     agent: agent::Agent,
     /// The AI chat: the conversations and the reply on its way.
     chat: chat::Chat,
+    /// OSC in, while it's on.
+    osc: Option<osc::Osc>,
     /// The extension gallery and the update check.
     ext: extensions::Online,
     midi: midi::Midi,
@@ -387,6 +393,7 @@ impl App {
             auto_last: None,
             agent: agent::Agent::default(),
             chat: chat::Chat::default(),
+            osc: None,
             ext: extensions::Online::default(),
             midi: midi::Midi::default(),
             midi_sink: MidiSink::default(),
@@ -881,6 +888,7 @@ impl eframe::App for App {
         self.poll_export();
         self.poll_recording();
         self.poll_agent(ctx, now);
+        self.poll_osc(ctx);
         self.chat_poll();
         self.poll_online();
         self.poll_extensions(ctx);

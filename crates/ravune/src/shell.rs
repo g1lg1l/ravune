@@ -901,6 +901,7 @@ impl App {
                 ui.label(RichText::new(format!("{}  {n}", icons::PIANO_KEYS)).color(t.select));
             }
         });
+        self.prefs_osc(ui, t);
     }
 
     fn prefs_look(&mut self, ui: &mut Ui, t: &Theme) {
