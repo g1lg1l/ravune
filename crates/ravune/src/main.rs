@@ -37,6 +37,7 @@ mod script;
 mod rack;
 mod shell;
 mod theme;
+mod usage;
 mod visualizer;
 mod widgets;
 mod workspace;
@@ -298,6 +299,8 @@ struct App {
     chat: chat::Chat,
     /// OSC in, while it's on.
     osc: Option<osc::Osc>,
+    /// The app's own CPU, memory and GPU, for the status bar.
+    usage: usage::Usage,
     /// The extension gallery and the update check.
     ext: extensions::Online,
     midi: midi::Midi,
@@ -394,6 +397,7 @@ impl App {
             agent: agent::Agent::default(),
             chat: chat::Chat::default(),
             osc: None,
+            usage: usage::Usage::new(),
             ext: extensions::Online::default(),
             midi: midi::Midi::default(),
             midi_sink: MidiSink::default(),
@@ -889,6 +893,7 @@ impl eframe::App for App {
         self.poll_recording();
         self.poll_agent(ctx, now);
         self.poll_osc(ctx);
+        self.usage.sample();
         self.chat_poll();
         self.poll_online();
         self.poll_extensions(ctx);

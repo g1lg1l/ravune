@@ -3483,6 +3483,7 @@ dependencies = [
  "flacenc",
  "image",
  "keyring",
+ "libc",
  "midir",
  "mlua",
  "naga",
@@ -3499,6 +3500,7 @@ dependencies = [
  "serde_json",
  "ureq",
  "vorbis_rs",
+ "windows",
  "winresource",
  "zip",
 ]

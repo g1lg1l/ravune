@@ -14,7 +14,7 @@ use serde_json::json;
 use crate::theme::{THEME_EXTENSION, THEME_EXTENSIONS, Theme};
 use crate::widgets::WaveStyle;
 use crate::i18n::{self, Lang};
-use crate::{App, BUFFER_SIZES, PIANO_KEYS, Tab, files, icons, kit, widgets};
+use crate::{App, BUFFER_SIZES, PIANO_KEYS, Tab, files, icons, kit, usage, widgets};
 
 /// The editors: tab, icon, name, keymap command.
 pub const EDITORS: [(Tab, &str, &str, &str); 4] = [
@@ -432,6 +432,48 @@ impl App {
 
     // ---- status bar and keys ------------------------------------------------
 
+    /// Ravune's loads for the status bar, as far as this system tells them, each with what its
+    /// hover says: the CPU, memory, GPU and video memory the app takes (the audio engine's own
+    /// load is in the top bar).
+    fn loads(&self) -> Vec<(usage::Load, String)> {
+        let u = &self.usage;
+        let size = |mb: f32| if mb >= 1000.0 { format!("{:.1} GB", mb / 1024.0) } else { format!("{mb:.0} MB") };
+        let mb = |bytes: u64| (bytes >> 20) as f32;
+        let trail = |t: &std::collections::VecDeque<f32>| t.iter().copied().collect::<Vec<f32>>();
+        // memory against its own highest with room above: a share of all of it would lie flat
+        let relative = |t: &std::collections::VecDeque<f32>| {
+            let top = t.iter().copied().fold(0.0, f32::max) * 1.25;
+            t.iter().map(|v| if top > 0.0 { v / top } else { 0.0 }).collect::<Vec<f32>>()
+        };
+        let mut loads = Vec::new();
+        if let Some(cpu) = u.cpu {
+            let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+            let tip = tr!("Ravune's share of the whole CPU ({} threads), audio and interface together", cores);
+            loads.push((usage::Load { name: "CPU", value: cpu, format: |v| format!("{v:.0}%"), room: "100%", strain: cpu / 100.0, warn: 0.6, high: 0.85, trail: trail(&u.trails.cpu) }, tip));
+        }
+        if let Some(memory) = u.memory {
+            let strain = u.trails.memory.back().copied().unwrap_or(0.0);
+            let tip = match u.memory_total {
+                Some(total) => tr!("Ravune's memory: {} of the {} this computer has", size(mb(memory)), size(mb(total))),
+                None => tr!("Ravune's memory: {}", size(mb(memory))),
+            };
+            loads.push((usage::Load { name: "RAM", value: mb(memory), format: size, room: "999 MB", strain, warn: 0.5, high: 0.75, trail: relative(&u.trails.memory) }, tip));
+        }
+        if let Some(gpu) = u.gpu {
+            let tip = tr!("How busy Ravune keeps the GPU, as Task Manager counts it").to_string();
+            loads.push((usage::Load { name: "GPU", value: gpu, format: |v| format!("{v:.0}%"), room: "100%", strain: gpu / 100.0, warn: 0.7, high: 0.9, trail: trail(&u.trails.gpu) }, tip));
+        }
+        if let Some(vram) = u.vram {
+            let strain = u.trails.vram.back().copied().unwrap_or(0.0);
+            let tip = match u.vram_budget.filter(|b| *b > 0) {
+                Some(budget) => tr!("Video memory Ravune holds: {} of the {} the system lets it use", size(mb(vram)), size(mb(budget))),
+                None => tr!("Video memory Ravune holds: {}", size(mb(vram))),
+            };
+            loads.push((usage::Load { name: "VRAM", value: mb(vram), format: size, room: "999 MB", strain, warn: 0.7, high: 0.9, trail: relative(&u.trails.vram) }, tip));
+        }
+        loads
+    }
+
     pub fn status_bar(&mut self, ui: &mut Ui) {
         let t = self.theme.clone();
         kit::strip(ui, &t, 24.0, t.bg_field, |ui| {
@@ -451,6 +493,12 @@ impl App {
                 let r = kit::icon_button(ui, &t, icons::SIDEBAR_SIMPLE, &self.tip(tr!("Browser"), "app.browser"), self.settings.show_browser);
                 if r.clicked() {
                     self.settings.show_browser = !self.settings.show_browser;
+                }
+                kit::vsep(ui, &t);
+                // the app's own load, a chip each (right to left: the last first)
+                for (load, tip) in self.loads().iter().rev() {
+                    let r = usage::chip(ui, &t, load);
+                    self.hint(&r, tip);
                 }
                 kit::vsep(ui, &t);
                 // agents: shown once turned on, lit while one is connected

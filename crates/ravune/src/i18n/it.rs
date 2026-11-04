@@ -1516,4 +1516,11 @@ pub static STRINGS: &[(&str, &str)] = &[
     ("A rack channel's volume, 0 to 1", "Il volume di un canale del rack, da 0 a 1"),
     ("Picks a pattern, by number", "Sceglie un pattern, per numero"),
     ("Runs an operator, its settings as JSON", "Esegue un operatore, con le impostazioni in JSON"),
+    // usage.rs, the status bar's loads
+    ("Ravune's share of the whole CPU ({} threads), audio and interface together", "La parte di Ravune di tutta la CPU ({} thread), audio e interfaccia insieme"),
+    ("Ravune's memory: {} of the {} this computer has", "Memoria di Ravune: {} dei {} di questo computer"),
+    ("Ravune's memory: {}", "Memoria di Ravune: {}"),
+    ("How busy Ravune keeps the GPU, as Task Manager counts it", "Quanto Ravune tiene occupata la GPU, come la conta Gestione attività"),
+    ("Video memory Ravune holds: {} of the {} the system lets it use", "Memoria video di Ravune: {} dei {} che il sistema le concede"),
+    ("Video memory Ravune holds: {}", "Memoria video di Ravune: {}"),
 ];
