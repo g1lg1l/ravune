@@ -1,5 +1,5 @@
 ; Ravune's Windows installer (Inno Setup 6). The release workflow builds it:
-;   iscc /DVersion=0.9.1-beta installer\ravune.iss   (after cargo build --release)
+;   iscc /DVersion=0.9.2-beta installer\ravune.iss   (after cargo build --release)
 ; → dist\ravune-<version>-windows-x64-setup.exe
 
 #ifndef Version
