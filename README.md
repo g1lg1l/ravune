@@ -76,6 +76,8 @@ cd ravune
 cargo run --release -p ravune
 ```
 
+`cargo dev` runs it from the sources while you work on it (`cargo dev -- song.ravune` opens a project).
+
 File → New from Template gives you a song to start from: `Space` plays it, `F9` opens the mixer. Keep `ravune-host` (plugins) and `ravune-mcp` (agents) next to the program. Developed on Windows 11; macOS and Linux pass the tests in CI but haven't been tried by hand. More in [Install and run](https://g1lg1l.github.io/ravune/install.html).
 
 ## Current state
