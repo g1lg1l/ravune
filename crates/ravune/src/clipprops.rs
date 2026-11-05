@@ -692,6 +692,9 @@ impl App {
                 }
                 let (r, v) = widgets::knob(ui, t, &PITCH, clip.fx.pitch);
                 self.apply_knob(&r, v, "clip.set_fx", |v| json!({ "index": i, "pitch": v }), &PITCH);
+                if let Some(pitch) = v {
+                    self.pitch_length(&r, i, &clip, pitch);
+                }
                 let (r, v) = widgets::knob(ui, t, &GAIN, clip.fx.gain);
                 self.apply_knob(&r, v, "clip.set_fx", |v| json!({ "index": i, "gain": v }), &GAIN);
                 let length = beats(clip.length);
@@ -789,8 +792,32 @@ impl App {
         }
     }
 
+    /// A new pitch changes clip `i`'s speed: it keeps the same part of its sound, so it grows
+    /// or shrinks with it on the playlist (with Keep length the speed doesn't move, nor does it).
+    fn pitch_length(&mut self, resp: &egui::Response, i: usize, before: &ravune_core::Clip, pitch: f32) {
+        let tempo = self.session.project.tempo;
+        let now = (before.offset, before.length, before.fx.speed(tempo));
+        // a drag scales from where it began, so rounding to ticks doesn't creep frame by frame
+        let id = resp.id.with("pitch-from");
+        let (offset, length, speed) = if resp.dragged() {
+            resp.ctx.data_mut(|d| {
+                if resp.drag_started() {
+                    d.remove::<(u32, u32, f64)>(id);
+                }
+                *d.get_temp_mut_or_insert_with(id, || now)
+            })
+        } else {
+            now
+        };
+        let q = speed / ClipFx { pitch, ..before.fx.clone() }.speed(tempo);
+        let (offset, length) = ((offset as f64 * q).round() as u32, ((length as f64 * q).round() as u32).max(1));
+        if (offset, length) != (before.offset, before.length) {
+            self.run_joined("clip.set", json!({ "index": i, "offset": offset, "length": length }));
+        }
+    }
+
     /// What changed on clip `i` this frame (it was `before`) goes to every other clip of
-    /// the same sound too, in the same undo step: tempo first (which grows or shrinks each
+    /// the same sound too, in the same undo step: tempo and pitch first (which grows or shrinks each
     /// to keep its part of the sound), then the rest of its sound, then its envelopes.
     fn copy_to_siblings(&mut self, i: usize, before: &ravune_core::Clip) {
         let Some(now) = self.session.project.clips.get(i).cloned() else { return };
@@ -802,8 +829,8 @@ impl App {
         let fx = &now.fx;
         for k in siblings {
             let c = self.session.project.clips[k].clone();
-            if (c.fx.stretch, c.fx.bpm) != (fx.stretch, fx.bpm) {
-                let q = c.fx.speed(tempo) / ClipFx { stretch: fx.stretch, bpm: fx.bpm, ..c.fx.clone() }.speed(tempo);
+            if (c.fx.stretch, c.fx.bpm, c.fx.pitch) != (fx.stretch, fx.bpm, fx.pitch) {
+                let q = c.fx.speed(tempo) / ClipFx { stretch: fx.stretch, bpm: fx.bpm, pitch: fx.pitch, ..c.fx.clone() }.speed(tempo);
                 let (offset, length) = ((c.offset as f64 * q).round() as u32, ((c.length as f64 * q).round() as u32).max(1));
                 self.run_joined("clip.set", json!({ "index": k, "offset": offset, "length": length }));
             }
