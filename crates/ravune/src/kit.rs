@@ -567,10 +567,14 @@ pub fn tabs<T: Copy + PartialEq>(ui: &mut Ui, t: &Theme, id: Id, current: T, ite
     let mut picked = None;
     let mut slots = Vec::with_capacity(items.len());
     let pad = t.pad - 2.0;
+    // a narrow bar: the active tab opens only if its label fits, and below that the icons squeeze
+    let n = items.len().max(1) as f32;
+    let room = ui.available_width() - ui.spacing().item_spacing.x * (n - 1.0);
+    let icon_only = (14.0 + 2.0 * pad).min(room / n).max(0.0);
     for (i, &(value, icon, label)) in items.iter().enumerate() {
         let full = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.fg_text).size().x + 20.0 + 2.0 * pad;
-        let open = if compact { ui.ctx().animate_bool_with_time(id.with(i), value == current, t.motion) } else { 1.0 };
-        let icon_only = 14.0 + 2.0 * pad;
+        let fits = room - icon_only * (n - 1.0) >= full;
+        let open = if compact { ui.ctx().animate_bool_with_time(id.with(i), value == current && fits, t.motion) } else { 1.0 };
         let w = icon_only + (full - icon_only) * open;
         let (rect, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
         if resp.clicked() {
@@ -591,7 +595,7 @@ pub fn tabs<T: Copy + PartialEq>(ui: &mut Ui, t: &Theme, id: Id, current: T, ite
         let active = *value == current;
         let color = if active { t.fg_text } else if resp.hovered() { Theme::mix(t.fg_muted, t.fg_text, 0.6) } else { t.fg_muted };
         let icon_color = if active { t.accent } else { color };
-        icon_at(painter, pos2(rect.left() + pad + 7.0, rect.center().y), icon, 15.0, icon_color);
+        icon_at(painter, pos2(rect.left() + (pad + 7.0).min(rect.width() / 2.0), rect.center().y), icon, 15.0, icon_color);
         if rect.width() > 30.0 {
             let label_color = color.gamma_multiply(((rect.width() - 30.0) / 30.0).min(1.0));
             painter.with_clip_rect(*rect).text(pos2(rect.left() + pad + 20.0, rect.center().y), Align2::LEFT_CENTER, *label, font.clone(), label_color);

@@ -331,10 +331,7 @@ impl App {
         let t = self.theme.clone();
         kit::region(ui);
         kit::bar(ui, &t, |ui| {
-            let tabs = TABS.map(|(tab, icon, label)| (tab, icon, crate::i18n::t(label)));
-            if let Some(tab) = kit::tabs(ui, &t, Id::unique("browser-tabs"), self.browser.tab, &tabs, true) {
-                self.browser.tab = tab;
-            }
+            // the buttons first, right to left: the tabs fit in the room they leave, never under them
             kit::right(ui, |ui| {
                 if kit::icon_button(ui, &t, icons::CARET_LEFT, &self.tip(tr!("Fold the browser into a rail"), "app.browser"), false).clicked() {
                     self.settings.show_browser = false;
@@ -360,6 +357,12 @@ impl App {
                     tr!("Preview as you select: on, a sound or synth preset plays as soon as you click it or arrow onto it (the ▶ on a row always plays it)")
                 } else {
                     tr!("Preview as you select: off, click the ▶ on a row to hear it")
+                });
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let tabs = TABS.map(|(tab, icon, label)| (tab, icon, crate::i18n::t(label)));
+                    if let Some(tab) = kit::tabs(ui, &t, Id::unique("browser-tabs"), self.browser.tab, &tabs, true) {
+                        self.browser.tab = tab;
+                    }
                 });
             });
         });

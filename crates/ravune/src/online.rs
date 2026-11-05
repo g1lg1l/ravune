@@ -896,41 +896,54 @@ impl App {
             }
         });
         kit::bar(ui, t, |ui| {
-            let o = &mut self.settings.online;
-            let label = Length::ALL.iter().find(|l| l.0 == o.length).map_or("", |l| crate::i18n::t(l.1));
+            // the whole bar: the key's popup opens under it, exactly as wide as the panel
+            let bar = ui.max_rect().expand2(vec2(t.pad, 0.0));
             let mut changed = false;
-            egui::ComboBox::from_id_salt("online-length").selected_text(label).width(96.0).show_ui(ui, |ui| {
-                for (length, name) in Length::ALL {
-                    changed |= ui.selectable_value(&mut o.length, length, crate::i18n::t(name)).clicked();
+            // right to left first, so the length menu gets only the room the buttons leave
+            kit::right(ui, |ui| {
+                // once Freesound has its key, it waits behind an icon (to read, copy or change it)
+                if self.settings.online.provider == Provider::Freesound && !self.settings.online.freesound_key.trim().is_empty() {
+                    let r = kit::icon_button(ui, t, icons::KEY, tr!("Your Freesound key"), false);                    let frame = egui::Frame::popup(ui.style());
+                    let width = bar.width() - frame.total_margin().sum().x;
+                    egui::Popup::from_toggle_button_response(&r)
+                        .anchor(bar)
+                        .align(egui::RectAlign::BOTTOM_START)
+                        .align_alternatives(&[])
+                        .frame(frame)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
+                            ui.set_width(width);
+                            kit::caps(ui, t, tr!("FREESOUND KEY"));
+                            Self::key_field(ui, t, &mut self.settings.online.freesound_key);
+                        });
                 }
-            });
-            let r = kit::button(ui, t, None, "SA", o.share_alike);
-            if r.clicked() {
-                o.share_alike = !o.share_alike;
-                changed = true;
-            }
-            let sa = r.on_hover_text(tr!("Include CC BY-SA: usable, but what you make from it must keep the same license"));
-            let r = kit::button(ui, t, None, "NC", o.non_commercial);
-            if r.clicked() {
-                o.non_commercial = !o.non_commercial;
-                changed = true;
-            }
-            let nc = r.on_hover_text(tr!("Include non-commercial licenses: never in music you sell or monetize"));
-            self.hint(&sa, tr!("CC0 and CC BY are always in. SA: share-alike licenses too."));
-            self.hint(&nc, tr!("NC: non-commercial licenses too. Leave it off for anything you might release."));
-            if changed {
-                self.start_search(&ctx, 1);
-            }
-            // once Freesound has its key, it waits behind an icon (to read, copy or change it)
-            if self.settings.online.provider == Provider::Freesound && !self.settings.online.freesound_key.trim().is_empty() {
-                kit::right(ui, |ui| {
-                    let r = kit::icon_button(ui, t, icons::KEY, tr!("Your Freesound key"), false);
-                    egui::Popup::from_toggle_button_response(&r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                        ui.set_min_width(300.0);
-                        kit::caps(ui, t, tr!("FREESOUND KEY"));
-                        Self::key_field(ui, t, &mut self.settings.online.freesound_key);
+                let o = &mut self.settings.online;
+                let r = kit::button(ui, t, None, "NC", o.non_commercial);
+                if r.clicked() {
+                    o.non_commercial = !o.non_commercial;
+                    changed = true;
+                }
+                let nc = r.on_hover_text(tr!("Include non-commercial licenses: never in music you sell or monetize"));
+                let r = kit::button(ui, t, None, "SA", o.share_alike);
+                if r.clicked() {
+                    o.share_alike = !o.share_alike;
+                    changed = true;
+                }
+                let sa = r.on_hover_text(tr!("Include CC BY-SA: usable, but what you make from it must keep the same license"));
+                self.hint(&sa, tr!("CC0 and CC BY are always in. SA: share-alike licenses too."));
+                self.hint(&nc, tr!("NC: non-commercial licenses too. Leave it off for anything you might release."));
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let o = &mut self.settings.online;
+                    let label = Length::ALL.iter().find(|l| l.0 == o.length).map_or("", |l| crate::i18n::t(l.1));
+                    egui::ComboBox::from_id_salt("online-length").selected_text(label).width(ui.available_width()).truncate().show_ui(ui, |ui| {
+                        for (length, name) in Length::ALL {
+                            changed |= ui.selectable_value(&mut o.length, length, crate::i18n::t(name)).clicked();
+                        }
                     });
                 });
+            });
+            if changed {
+                self.start_search(&ctx, 1);
             }
         });
         if self.settings.online.provider == Provider::Freesound && self.settings.online.freesound_key.trim().is_empty() {
@@ -990,8 +1003,9 @@ impl App {
     /// The key's field, in plain text with a copy button, and where to get one.
     fn key_field(ui: &mut Ui, t: &Theme, key: &mut String) {
         ui.horizontal(|ui| {
-            let button = ui.spacing().interact_size.y + t.gap;
-            ui.add(kit::field(key).hint_text(tr!("Paste your API key")).font(egui::TextStyle::Monospace).desired_width((ui.available_width() - button).max(160.0)));
+            // exactly what the copy button takes: more and a popup sized to its content widens every frame
+            let button = 26.0 + ui.spacing().item_spacing.x;
+            ui.add(kit::field(key).hint_text(tr!("Paste your API key")).font(egui::TextStyle::Monospace).desired_width((ui.available_width() - button).max(80.0)));
             if kit::icon_button(ui, t, icons::COPY, tr!("Copy the key"), false).clicked() {
                 ui.ctx().copy_text(key.trim().to_string());
             }
