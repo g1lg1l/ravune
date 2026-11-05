@@ -29,6 +29,22 @@ fn keyboard_travel(ui: &Ui, resp: &Response, travel: f32, steps: Option<f32>) ->
     }
 }
 
+/// The wheel turns a control only once it's selected (clicked, dragged or tabbed to), so scrolling
+/// a panel past it leaves it alone; then it takes the wheel and the panel doesn't scroll.
+fn wheel(ui: &Ui, resp: &Response) -> f32 {
+    if resp.clicked() || resp.drag_started() {
+        resp.request_focus();
+    }
+    if !(resp.hovered() && resp.has_focus()) {
+        return 0.0;
+    }
+    let delta = ui.input(|i| i.smooth_scroll_delta.y);
+    if delta != 0.0 {
+        ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+    }
+    delta
+}
+
 fn reset_pressed(ui: &Ui, resp: &Response) -> bool {
     resp.has_focus() && ui.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace))
 }
@@ -80,12 +96,10 @@ pub fn knob(ui: &mut Ui, t: &Theme, info: &ParamInfo, value: f32) -> (Response, 
         let travel = (ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(norm) + delta).clamp(0.0, 1.0);
         ui.data_mut(|d| d.insert_temp(id, travel));
         new = Some(info.from_norm(travel));
-    } else if resp.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    } else {
+        let scroll = wheel(ui, &resp);
         if scroll != 0.0 {
             new = Some(info.from_norm(norm + scroll * 0.0015));
-            // the knob took the wheel: the panel around it doesn't scroll too
-            ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
         }
     }
     // semitones and cents: arrows move a tenth, Ctrl lands on whole semitones
@@ -169,11 +183,10 @@ pub fn mini_knob(ui: &mut Ui, t: &Theme, center: Pos2, value: f32, default: f32,
     if resp.dragged() {
         let fine = ui.input(|i| i.modifiers.shift);
         new = Some((value - resp.drag_delta().y * if fine { 0.0015 } else { 0.006 }).clamp(0.0, 1.0));
-    } else if resp.hovered() {
-        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
-        if wheel != 0.0 {
-            new = Some((value + wheel * 0.0015).clamp(0.0, 1.0));
-            ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+    } else {
+        let scroll = wheel(ui, &resp);
+        if scroll != 0.0 {
+            new = Some((value + scroll * 0.0015).clamp(0.0, 1.0));
         }
     }
     if resp.double_clicked() {
@@ -190,6 +203,7 @@ pub fn mini_knob(ui: &mut Ui, t: &Theme, center: Pos2, value: f32, default: f32,
     let a = a0 + sweep * shown;
     painter.line_segment([c + vec2(a.cos(), a.sin()) * 1.5, c + vec2(a.cos(), a.sin()) * (r - 3.5)], Stroke::new(1.2, t.fg_text));
     resp.widget_info(|| WidgetInfo::slider(true, shown as f64, "Volume"));
+    kit::focus_ring(ui, t, &resp, t.radius_md);
     (resp, new)
 }
 
@@ -382,8 +396,8 @@ pub fn fader(ui: &mut Ui, t: &Theme, gain: f32, level: f32, hold: f32, height: f
         let moved = (ui.data(|d| d.get_temp::<f32>(resp.id)).unwrap_or(travel) + delta).clamp(0.0, 1.0);
         ui.data_mut(|d| d.insert_temp(resp.id, moved));
         new = Some(MAX * moved.powi(3));
-    } else if resp.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    } else {
+        let scroll = wheel(ui, &resp);
         if scroll != 0.0 {
             new = Some(MAX * (travel + scroll * 0.001).clamp(0.0, 1.0).powi(3));
         }
