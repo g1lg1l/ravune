@@ -10,7 +10,7 @@ description = "Runs one CLAP or VST3 plugin for Ravune, in its own process"
 clack-extensions = { version = "0.2.0", features = ["clack-host", "audio-ports", "gui", "log", "note-ports", "params", "posix-fd", "state", "thread-check", "timer"] }
 clack-host = "0.2.0"
 libloading = "0.8.9"
-ravune-bridge = { version = "0.9.2-beta", path = "../ravune-bridge" }
+ravune-bridge = { version = "0.9.3-beta", path = "../ravune-bridge" }
 vst3 = "0.3.0"
 
 [target.'cfg(windows)'.dependencies]

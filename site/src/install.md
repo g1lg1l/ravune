@@ -2,13 +2,13 @@
 
 ## Download
 
-The [releases page](https://github.com/g1lg1l/ravune/releases) has the 0.9.2 beta:
+The [releases page](https://github.com/g1lg1l/ravune/releases) has the 0.9.3 beta:
 
 | System | File | |
 |---|---|---|
-| Windows 10 or 11 (x64) | `ravune-0.9.2-beta-windows-x64-setup.exe` | the installer: Start menu entry, uninstaller, `.ravune` files open in Ravune. Or the `.zip`, to run it from any folder |
-| macOS 11 or newer (Apple Silicon) | `ravune-0.9.2-beta-macos-arm64.dmg` | drag Ravune to Applications |
-| Linux (x64) | `ravune-0.9.2-beta-linux-x64.tar.gz` | unpack and run `ravune`; needs ALSA |
+| Windows 10 or 11 (x64) | `ravune-0.9.3-beta-windows-x64-setup.exe` | the installer: Start menu entry, uninstaller, `.ravune` files open in Ravune. Or the `.zip`, to run it from any folder |
+| macOS 11 or newer (Apple Silicon) | `ravune-0.9.3-beta-macos-arm64.dmg` | drag Ravune to Applications |
+| Linux (x64) | `ravune-0.9.3-beta-linux-x64.tar.gz` | unpack and run `ravune`; needs ALSA |
 
 The builds aren't signed yet. On Windows, SmartScreen may stop the installer: More info →
 Run anyway. On macOS, the first time, right-click Ravune → Open.
