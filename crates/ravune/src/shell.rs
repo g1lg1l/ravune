@@ -89,9 +89,10 @@ impl Renaming {
     }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PrefsTab {
     #[default]
+    General,
     Audio,
     Midi,
     Look,
@@ -102,7 +103,7 @@ pub enum PrefsTab {
 
 impl PrefsTab {
     pub fn named(name: &str) -> Option<PrefsTab> {
-        let all = [PrefsTab::Audio, PrefsTab::Midi, PrefsTab::Look, PrefsTab::Keys, PrefsTab::Agents, PrefsTab::Extensions];
+        let all = [PrefsTab::General, PrefsTab::Audio, PrefsTab::Midi, PrefsTab::Look, PrefsTab::Keys, PrefsTab::Agents, PrefsTab::Extensions];
         all.into_iter().find(|t| format!("{t:?}").eq_ignore_ascii_case(name))
     }
 }
@@ -112,6 +113,25 @@ impl PrefsTab {
 enum Choice {
     Op(&'static str),
     Script(Box<crate::script::Script>),
+}
+
+/// A page in the preferences' side: its icon and name; the one showing lit, with a stripe.
+fn prefs_nav_item(ui: &mut Ui, t: &Theme, icon: &str, name: &str, on: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), Theme::CONTROL_H + 6.0), Sense::click());
+    let h = kit::hover(ui, t, &resp);
+    let k = ui.ctx().animate_bool_with_time(resp.id.with("on"), on, t.motion);
+    let painter = ui.painter();
+    let fill = Theme::mix(Theme::mix(t.bg_panel, t.fg_text, 0.05 * h), t.accent, 0.14 * k);
+    painter.rect_filled(rect, CornerRadius::same(t.radius_sm), fill);
+    if k > 0.0 {
+        painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 6.0), vec2(3.0, rect.height() - 12.0)), CornerRadius::same(2), t.accent.gamma_multiply(k));
+    }
+    let ink = Theme::mix(t.fg_muted, t.fg_text, h.max(k));
+    kit::icon_at(painter, pos2(rect.left() + 16.0, rect.center().y), icon, Theme::TEXT_MD + 2.0, Theme::mix(ink, t.accent, k));
+    painter.text(pos2(rect.left() + 34.0, rect.center().y), egui::Align2::LEFT_CENTER, name, Theme::body(), ink);
+    kit::focus_ring(ui, t, &resp, t.radius_sm);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, on, name));
+    resp
 }
 
 /// A theme in the Look list: its name and a strip of its colors.
@@ -271,7 +291,7 @@ impl App {
                 self.hint(&r, tr!("Sample rate · buffer latency · audio CPU. Preferences (Ctrl ,) to change."));
                 // clicks and gaps the audio had: a bigger buffer (Preferences) or fewer plugins help
                 if let Some(n) = self.engine.as_ref().map(|e| e.stats().xruns()).filter(|n| *n > 0) {
-                    let r = ui.label(RichText::new(tr!("{} dropouts", n)).font(Theme::mono(11.0)).color(t.meter_hot));
+                    let r = ui.label(RichText::new(if n == 1 { tr!("1 dropout").to_string() } else { tr!("{} dropouts", n) }).font(Theme::mono(11.0)).color(t.meter_hot));
                     self.hint(&r, tr!("The audio missed its deadline this many times (clicks or gaps): a bigger buffer in Preferences → Audio, or fewer plugins, helps"));
                 }
                 let r = widgets::meter(ui, &t, self.level);
@@ -378,7 +398,8 @@ impl App {
     }
 
     fn file_menu(&mut self, ui: &mut Ui) {
-        let items: [(&str, &str, &str); 7] = [
+        let items: [(&str, &str, &str); 8] = [
+            (icons::SQUARES_FOUR, tr!("Start Page"), "app.start"),
             (icons::FILE_PLUS, tr!("New"), "app.new"),
             (icons::FOLDER_OPEN, tr!("Open…"), "app.open"),
             (icons::FLOPPY_DISK, tr!("Save"), "app.save"),
@@ -388,7 +409,7 @@ impl App {
             (icons::GLOBE, tr!("Export credits…"), "app.credits"),
         ];
         for (i, (icon, label, command)) in items.into_iter().enumerate() {
-            if i == 2 {
+            if i == 3 {
                 let recent = self.settings.recent.clone();
                 ui.menu_button(format!("{}  {}", icons::CLOCK_COUNTER_CLOCKWISE, tr!("Open Recent")), |ui| {
                     if recent.is_empty() {
@@ -438,7 +459,7 @@ impl App {
                     self.install_extension_file(ui.ctx());
                 }
             }
-            if i == 2 || i == 5 {
+            if i == 1 || i == 3 || i == 6 {
                 ui.separator();
             }
             let keys = self.settings.keymap.keys(command).first().map(keymap::text).unwrap_or_default();
@@ -852,15 +873,24 @@ impl App {
         }
         let t = self.theme.clone();
         let mut close = false;
+        // the pages: what each is called, its icon, and what's in it
+        let pages = [
+            (PrefsTab::General, icons::GEAR_SIX, tr!("General"), tr!("Language, size, motion, what Ravune opens on, updates.")),
+            (PrefsTab::Audio, icons::SPEAKER_HIGH, "Audio", tr!("Where the sound goes, how loud, and how fast it answers.")),
+            (PrefsTab::Midi, icons::PIANO_KEYS, "MIDI", tr!("Keyboards and controllers, and OSC from other apps.")),
+            (PrefsTab::Look, icons::PALETTE, tr!("Look"), tr!("Themes and how waveforms are drawn.")),
+            (PrefsTab::Keys, icons::KEYBOARD, tr!("Keys"), tr!("Every shortcut: pick a layout, then change any key.")),
+            (PrefsTab::Agents, icons::ROBOT, tr!("Agents"), tr!("Let Claude and other AI agents use Ravune: what they may do, and how to connect them.")),
+            (PrefsTab::Extensions, icons::PUZZLE_PIECE, tr!("Extensions"), tr!("Themes, scripts, sounds and templates others made; updates.")),
+        ];
+        let size = vec2(860.0, 620.0).min(ctx.content_rect().size() - vec2(40.0, 40.0));
         egui::Window::new("Preferences")
             .id(Id::unique("preferences"))
             .title_bar(false)
             .frame(kit::window_frame(ctx, &t))
-            // any size you drag it to, the same on every tab; a long tab scrolls
-            .resizable(true)
-            .default_size([480.0, 560.0])
-            .min_size([400.0, 260.0])
-            .default_pos(pos2(ctx.content_rect().right() - 520.0, 60.0))
+            .resizable(false)
+            .fixed_size(size)
+            .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 kit::region(ui);
                 kit::bar(ui, &t, |ui| {
@@ -868,32 +898,87 @@ impl App {
                     let tip = self.tip(tr!("Close"), "app.preferences");
                     kit::right(ui, |ui| close = kit::icon_button(ui, &t, icons::X, &tip, false).clicked());
                 });
-                kit::bar(ui, &t, |ui| {
-                    let items = [
-                        (PrefsTab::Audio, icons::SPEAKER_HIGH, "Audio"),
-                        (PrefsTab::Midi, icons::PIANO_KEYS, "MIDI"),
-                        (PrefsTab::Look, icons::SPARKLE, tr!("Look")),
-                        (PrefsTab::Keys, icons::KEYBOARD, tr!("Keys")),
-                        (PrefsTab::Agents, icons::ROBOT, tr!("Agents")),
-                        (PrefsTab::Extensions, icons::PUZZLE_PIECE, tr!("Extensions")),
-                    ];
-                    if let Some(tab) = kit::tabs(ui, &t, Id::unique("prefs-tabs"), self.prefs_tab, &items, false) {
-                        self.prefs_tab = tab;
+                // the window's whole body, taken up front so its frame fills behind the pages
+                let (rect, _) = ui.allocate_exact_size(vec2(size.x, ui.available_height().max(size.y - t.bar_h)), Sense::hover());
+                let side = egui::Rect::from_min_size(rect.min, vec2(200.0, rect.height()));
+                let main = egui::Rect::from_min_max(pos2(side.right() + 1.0, rect.top()), rect.max);
+                ui.painter().rect_filled(side, CornerRadius { nw: 0, ne: 0, sw: t.radius_md + 2, se: 0 }, t.bg_panel);
+                ui.painter().vline(side.right() + 0.5, side.y_range(), Stroke::new(1.0, t.line));
+                // the pages, down the side
+                let mut nav = ui.new_child(egui::UiBuilder::new().max_rect(side.shrink(t.pad)).layout(egui::Layout::top_down(egui::Align::Min)));
+                nav.spacing_mut().item_spacing.y = 2.0;
+                for (tab, icon, name, _) in &pages {
+                    if prefs_nav_item(&mut nav, &t, icon, name, self.prefs_tab == *tab).clicked() {
+                        self.prefs_tab = *tab;
+                        self.binding = None;
                     }
+                }
+                // the page: its name and what it holds, then its settings
+                let mut page = ui.new_child(egui::UiBuilder::new().max_rect(main).layout(egui::Layout::top_down(egui::Align::Min)));
+                kit::region(&mut page);
+                let (_, _, name, about) = pages.iter().find(|p| p.0 == self.prefs_tab).unwrap_or(&pages[0]);
+                egui::Frame::new().inner_margin(egui::Margin { left: (t.pad * 2.0) as i8, right: (t.pad * 2.0) as i8, top: (t.pad * 1.5) as i8, bottom: t.pad as i8 }).show(&mut page, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(*name).font(egui::FontId::proportional(Theme::TEXT_LG + 3.0)).strong().color(t.fg_text));
+                    ui.add_space(2.0);
+                    ui.label(RichText::new(*about).color(t.fg_muted));
                 });
-                kit::scroll(ui, &t, "prefs", true, t.bg_base, |ui| match self.prefs_tab {
-                    PrefsTab::Audio => self.prefs_audio(ui, &t, now),
-                    PrefsTab::Midi => self.prefs_midi(ui, &t),
-                    PrefsTab::Look => self.prefs_look(ui, &t),
-                    PrefsTab::Keys => self.prefs_keys(ui, &t),
-                    PrefsTab::Agents => self.prefs_agents(ui, &t),
-                    PrefsTab::Extensions => self.prefs_extensions(ui, &t),
+                let (line, _) = page.allocate_exact_size(vec2(page.available_width(), 1.0), Sense::hover());
+                page.painter().hline(line.x_range(), line.center().y, Stroke::new(1.0, t.line));
+                kit::scroll(&mut page, &t, ("prefs", self.prefs_tab), true, t.bg_base, |ui| {
+                    ui.add_space(t.pad * 0.5);
+                    match self.prefs_tab {
+                        PrefsTab::General => self.prefs_general(ui, &t),
+                        PrefsTab::Audio => self.prefs_audio(ui, &t, now),
+                        PrefsTab::Midi => self.prefs_midi(ui, &t),
+                        PrefsTab::Look => self.prefs_look(ui, &t),
+                        PrefsTab::Keys => self.prefs_keys(ui, &t),
+                        PrefsTab::Agents => self.prefs_agents(ui, &t),
+                        PrefsTab::Extensions => self.prefs_extensions(ui, &t),
+                    }
+                    ui.add_space(t.pad);
                 });
             });
-        if close {
+        if close || ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.binding.is_none() {
             self.show_settings = false;
             self.binding = None;
         }
+    }
+
+    /// Preferences → General: what's about Ravune as a whole.
+    fn prefs_general(&mut self, ui: &mut Ui, t: &Theme) {
+        kit::section(ui, t, tr!("INTERFACE"), true, |ui| {
+            // each language under its own name, so it's found whatever the current one is
+            let current = Lang::ALL.iter().position(|l| *l == self.settings.language).unwrap_or(0);
+            kit::setting(ui, t, tr!("Language"), tr!("The words of the interface. Your songs and sounds keep their names."), |ui| {
+                if let Some(i) = kit::segmented(ui, t, current, &Lang::ALL.map(Lang::name)) {
+                    self.settings.language = Lang::ALL[i];
+                    i18n::set(Lang::ALL[i]);
+                }
+            });
+            let zooms = [0.9, 1.0, 1.1, 1.25, 1.5];
+            let current = zooms.iter().position(|z| (*z - self.settings.zoom).abs() < 0.01).unwrap_or(1);
+            kit::setting(ui, t, tr!("Interface size"), tr!("Everything bigger or smaller: for a large screen, or to read from further away."), |ui| {
+                if let Some(i) = kit::segmented(ui, t, current, &["90%", "100%", "110%", "125%", "150%"]) {
+                    self.settings.zoom = zooms[i];
+                    ui.ctx().set_zoom_factor(zooms[i]);
+                }
+            });
+            let mut calm = self.settings.reduce_motion;
+            kit::setting(ui, t, tr!("Reduce motion"), tr!("No sliding, fading or breathing: things just change."), |ui| kit::switch(ui, t, &mut calm, tr!("Reduce motion")));
+            if calm != self.settings.reduce_motion {
+                self.settings.reduce_motion = calm;
+                self.use_theme(ui.ctx(), self.settings.theme.clone());
+            }
+        });
+        kit::section(ui, t, tr!("STARTING"), false, |ui| {
+            kit::setting(ui, t, tr!("Open on the start page"), tr!("Your recent songs, the templates and the lessons, when Ravune starts without a song."), |ui| {
+                kit::switch(ui, t, &mut self.settings.show_start, tr!("Open on the start page"))
+            });
+            kit::setting(ui, t, tr!("Look for updates"), tr!("When Ravune starts it asks GitHub if there's a newer version, and offers it. Nothing else is sent."), |ui| {
+                kit::switch(ui, t, &mut self.settings.check_updates, tr!("Look for updates"))
+            });
+        });
     }
 
     fn prefs_keys(&mut self, ui: &mut Ui, t: &Theme) {
@@ -987,34 +1072,34 @@ impl App {
     }
 
     fn prefs_audio(&mut self, ui: &mut Ui, t: &Theme, now: f64) {
-        kit::section(ui, t, tr!("OUTPUT VOLUME"), true, |ui| {
-            ui.horizontal(|ui| self.volume_slider(ui, t, 220.0));
-            ui.label(RichText::new(tr!("Ravune's own level, after the mixer: how loud everything comes out of your speakers. The project's mix stays as it is.")).small().color(t.fg_muted));
-        });
         let mut restart = false;
-        kit::section(ui, t, tr!("OUTPUT DEVICE"), false, |ui| {
-            let current = self.settings.device.clone().unwrap_or_else(|| tr!("System default").into());
-            ComboBox::from_id_salt("device").selected_text(current).width(ui.available_width()).show_ui(ui, |ui| {
-                restart |= ui.selectable_value(&mut self.settings.device, None, tr!("System default")).clicked();
-                for d in &self.devices {
-                    restart |= ui.selectable_value(&mut self.settings.device, Some(d.clone()), d).clicked();
-                }
+        kit::section(ui, t, tr!("OUTPUT"), true, |ui| {
+            kit::setting(ui, t, tr!("Device"), tr!("Where Ravune plays: your speakers, headphones or an audio interface."), |ui| {
+                let current = self.settings.device.clone().unwrap_or_else(|| tr!("System default").into());
+                ComboBox::from_id_salt("device").selected_text(current).width(240.0).show_ui(ui, |ui| {
+                    restart |= ui.selectable_value(&mut self.settings.device, None, tr!("System default")).clicked();
+                    for d in &self.devices {
+                        restart |= ui.selectable_value(&mut self.settings.device, Some(d.clone()), d).clicked();
+                    }
+                });
+            });
+            kit::setting(ui, t, tr!("Volume"), tr!("Ravune's own level, after the mixer: how loud everything comes out. The song's mix stays as it is."), |ui| {
+                ui.horizontal(|ui| self.volume_slider(ui, t, 200.0));
+            });
+            kit::setting(ui, t, tr!("Buffer"), tr!("Smaller answers faster when you play; bigger is safer from clicks and gaps."), |ui| {
+                let name = |b: Option<u32>| b.map_or(tr!("Device default").to_string(), |n| tr!("{} samples", n));
+                ComboBox::from_id_salt("buffer").selected_text(name(self.settings.buffer)).width(240.0).show_ui(ui, |ui| {
+                    for b in BUFFER_SIZES {
+                        restart |= ui.selectable_value(&mut self.settings.buffer, b, name(b)).clicked();
+                    }
+                });
             });
             ui.horizontal(|ui| {
-                restart |= kit::button(ui, t, Some(icons::ARROW_COUNTER_CLOCKWISE), tr!("Restart audio"), false).clicked();
-                if kit::button(ui, t, Some(icons::MAGNIFYING_GLASS), tr!("Find devices"), false).clicked() {
+                restart |= kit::action(ui, t, kit::Variant::Secondary, Some(icons::ARROW_COUNTER_CLOCKWISE), tr!("Restart audio")).clicked();
+                if kit::action(ui, t, kit::Variant::Ghost, Some(icons::MAGNIFYING_GLASS), tr!("Find devices")).clicked() {
                     self.devices = Engine::devices();
                 }
             });
-        });
-        kit::section(ui, t, "BUFFER", false, |ui| {
-            let name = |b: Option<u32>| b.map_or(tr!("Device default").to_string(), |n| tr!("{} samples", n));
-            ComboBox::from_id_salt("buffer").selected_text(name(self.settings.buffer)).width(ui.available_width()).show_ui(ui, |ui| {
-                for b in BUFFER_SIZES {
-                    restart |= ui.selectable_value(&mut self.settings.buffer, b, name(b)).clicked();
-                }
-            });
-            ui.label(RichText::new(tr!("Smaller buffer = less delay, more risk of crackles.")).small().color(t.fg_muted));
         });
         if restart {
             self.start_engine(now);
@@ -1023,18 +1108,22 @@ impl App {
             if let Some(e) = &self.engine {
                 let s = e.stats();
                 let ms = s.buffer_frames() as f32 / e.sample_rate as f32 * 1000.0;
-                egui::Grid::new("audio-stats").num_columns(2).spacing(vec2(t.pad, t.gap)).show(ui, |ui| {
-                    for (k, v) in [
-                        (tr!("Device"), e.device.clone()),
-                        (tr!("Sample rate"), format!("{} Hz", e.sample_rate)),
-                        ("Buffer", tr!("{} frames · {} ms", s.buffer_frames(), format!("{ms:.1}"))),
-                        (tr!("Audio load"), format!("{:.1}%", s.load() * 100.0)),
-                        (tr!("Dropouts"), s.xruns().to_string()),
-                    ] {
-                        ui.label(RichText::new(k).color(t.fg_muted));
-                        ui.label(RichText::new(v).font(Theme::mono(11.0)));
-                        ui.end_row();
-                    }
+                let dropouts = s.xruns();
+                egui::Frame::new().fill(t.bg_panel).stroke(Stroke::new(1.0, t.line)).corner_radius(t.radius_md).inner_margin(t.pad).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    egui::Grid::new("audio-stats").num_columns(2).spacing(vec2(t.pad * 2.0, t.gap)).show(ui, |ui| {
+                        for (k, v, hot) in [
+                            (tr!("Device"), e.device.clone(), false),
+                            (tr!("Sample rate"), format!("{} Hz", e.sample_rate), false),
+                            ("Buffer", tr!("{} frames · {} ms", s.buffer_frames(), format!("{ms:.1}")), false),
+                            (tr!("Audio load"), format!("{:.1}%", s.load() * 100.0), s.load() > 0.8),
+                            (tr!("Dropouts"), dropouts.to_string(), dropouts > 0),
+                        ] {
+                            ui.label(RichText::new(k).color(t.fg_muted));
+                            ui.label(RichText::new(v).font(Theme::mono(11.0)).color(if hot { t.meter_hot } else { t.fg_text }));
+                            ui.end_row();
+                        }
+                    });
                 });
             }
             if let Some(err) = &self.engine_error {
@@ -1057,40 +1146,19 @@ impl App {
     }
 
     fn prefs_look(&mut self, ui: &mut Ui, t: &Theme) {
-        // each language under its own name, so it's found whatever the current one is
-        kit::section(ui, t, tr!("LANGUAGE"), true, |ui| {
-            let current = Lang::ALL.iter().position(|l| *l == self.settings.language).unwrap_or(0);
-            if let Some(i) = kit::segmented(ui, t, current, &Lang::ALL.map(Lang::name)) {
-                self.settings.language = Lang::ALL[i];
-                i18n::set(Lang::ALL[i]);
-            }
-        });
-        kit::section(ui, t, tr!("WAVEFORMS"), false, |ui| {
+        kit::section(ui, t, tr!("WAVEFORMS"), true, |ui| {
             let looks = [WaveStyle::Mono, WaveStyle::Rgb, WaveStyle::ThreeBand];
             let current = looks.iter().position(|w| *w == self.settings.wave).unwrap_or(0);
-            if let Some(i) = kit::segmented(ui, t, current, &["Mono", "RGB", tr!("3-Band")]) {
-                self.settings.wave = looks[i];
-            }
             let help = match self.settings.wave {
                 WaveStyle::Mono => tr!("One color, brighter where there are more highs."),
                 WaveStyle::Rgb => tr!("Red = lows, green = mids, blue = highs, mixed."),
                 WaveStyle::ThreeBand => tr!("Lows, mids and highs as layers, like a CDJ."),
             };
-            ui.label(RichText::new(help).small().color(t.fg_muted));
-        });
-        kit::section(ui, t, tr!("INTERFACE SIZE"), false, |ui| {
-            let zooms = [0.9, 1.0, 1.1, 1.25, 1.5];
-            let current = zooms.iter().position(|z| (*z - self.settings.zoom).abs() < 0.01).unwrap_or(1);
-            if let Some(i) = kit::segmented(ui, t, current, &["90%", "100%", "110%", "125%", "150%"]) {
-                self.settings.zoom = zooms[i];
-                ui.ctx().set_zoom_factor(zooms[i]);
-            }
-        });
-        kit::section(ui, t, tr!("MOTION"), false, |ui| {
-            if let Some(i) = kit::segmented(ui, t, self.settings.reduce_motion as usize, &[tr!("Animations on"), tr!("Reduce motion")]) {
-                self.settings.reduce_motion = i == 1;
-                self.use_theme(ui.ctx(), self.settings.theme.clone());
-            }
+            kit::setting(ui, t, tr!("Waveform style"), help, |ui| {
+                if let Some(i) = kit::segmented(ui, t, current, &["Mono", "RGB", tr!("3-Band")]) {
+                    self.settings.wave = looks[i];
+                }
+            });
         });
         kit::section(ui, t, tr!("THEME"), false, |ui| {
             ui.scope(|ui| {

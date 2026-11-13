@@ -752,16 +752,9 @@ impl App {
     /// "Delete?" for what's waiting on it: deleted for good (not to the recycle bin) on yes.
     fn confirm_delete(&mut self, ctx: &egui::Context) {
         let Some((what, paths)) = self.browser.doomed.clone() else { return };
-        let mut choice = None;
-        egui::Modal::new(Id::unique("browser-delete")).show(ctx, |ui| {
-            ui.set_max_width(380.0);
-            ui.label(RichText::new(tr!("Delete {}?", what)).heading());
-            ui.label(tr!("It's deleted from the disk for good, not put in the recycle bin. A song that uses it will miss it."));
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                choice = [(tr!("Delete"), true), (tr!("Cancel"), false)].into_iter().find_map(|(label, yes)| ui.button(label).clicked().then_some(yes));
-            });
-        });
+        let t = self.theme.clone();
+        let body = tr!("It's deleted from the disk for good, not put in the recycle bin. A song that uses it will miss it.");
+        let choice = kit::confirm(ctx, &t, "browser-delete", icons::TRASH, t.meter_hot, &tr!("Delete {}?", what), body, &[tr!("Delete"), tr!("Cancel")]).map(|k| k == 0);
         match choice {
             Some(true) => {
                 self.browser.doomed = None;

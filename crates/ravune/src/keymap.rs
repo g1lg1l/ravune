@@ -17,7 +17,7 @@ const fn cmd(group: &'static str, id: &'static str, label: &'static str) -> Comm
     Command { id, label, group }
 }
 
-pub const COMMANDS: [Command; 39] = [
+pub const COMMANDS: [Command; 40] = [
     cmd("Transport", "transport.play_toggle", "Play / stop (besides Space)"),
     cmd("Transport", "transport.mode_toggle", "Pattern / song mode"),
     cmd("Transport", "transport.metronome_toggle", "Metronome"),
@@ -25,6 +25,7 @@ pub const COMMANDS: [Command; 39] = [
     cmd("Transport", "app.record", "Record what plays"),
     cmd("Transport", "app.tap_tempo", "Tap tempo"),
     cmd("Transport", "app.retry_take", "Discard the take and record again"),
+    cmd("Project", "app.start", "Start page: recent songs and templates"),
     cmd("Project", "app.new", "New project"),
     cmd("Project", "app.open", "Open"),
     cmd("Project", "app.save", "Save"),

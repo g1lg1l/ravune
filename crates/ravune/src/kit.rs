@@ -7,7 +7,7 @@ use std::f32::consts::TAU;
 use std::hash::Hash;
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Frame, Id, LayerId, Layout, Mesh, Order, Painter, Pos2, Rect, Response, RichText,
+    self, Align, Align2, Color32, CornerRadius, FontId, Frame, Id, Key, LayerId, Layout, Mesh, Order, Painter, Pos2, Rect, Response, RichText,
     Role, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder, Vec2, WidgetInfo, pos2, vec2,
 };
 
@@ -275,6 +275,8 @@ pub fn icon_turned(painter: &Painter, center: Pos2, icon: &str, size: f32, color
 /// shadcn/ui's button variants.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Variant {
+    /// The accent's fill: the one thing a dialog expects you to do.
+    Primary,
     Secondary,
     /// A border, no fill.
     Outline,
@@ -297,11 +299,16 @@ pub fn action_sized(ui: &mut Ui, t: &Theme, variant: Variant, icon: Option<&str>
     let enabled = ui.is_enabled();
     let h = if enabled { hover(ui, t, &resp) } else { 0.0 };
     let (fill, stroke) = match variant {
+        Variant::Primary => (Theme::mix(t.accent, t.fg_text, 0.12 * h), None),
         Variant::Secondary => (Theme::mix(t.bg_control, t.fg_text, 0.08 * h), None),
         Variant::Outline => (t.bg_control.gamma_multiply(h), Some(t.line)),
         Variant::Ghost => (t.bg_control.gamma_multiply(h), None),
     };
-    let color = if enabled { t.fg_text } else { t.fg_muted };
+    let color = match variant {
+        Variant::Primary if enabled => t.bg_base,
+        _ if enabled => t.fg_text,
+        _ => t.fg_muted,
+    };
     let shape = if resp.is_pointer_button_down_on() { rect.shrink(1.0) } else { rect };
     let painter = ui.painter();
     painter.rect_filled(shape, CornerRadius::same(t.radius_sm), fill);
@@ -788,6 +795,55 @@ pub fn modal_flush<R>(ctx: &egui::Context, t: &Theme, id: &str, title: &str, wid
     });
     let close = out.inner.1 || out.should_close();
     (out.inner.0, close)
+}
+
+/// A question that needs an answer before going on: an icon in its tone, a title, what's at
+/// stake, and the answers as buttons on the right, the first one the [`Variant::Primary`]
+/// one. Enter picks the first, Esc (or a click outside) the last. Returns the one picked.
+#[allow(clippy::too_many_arguments)]
+pub fn confirm(ctx: &egui::Context, t: &Theme, id: &str, icon: &str, tone: Color32, title: &str, body: &str, answers: &[&str]) -> Option<usize> {
+    let frame = Frame::new()
+        .fill(t.bg_device)
+        .stroke(Stroke::new(1.0, t.line))
+        .corner_radius(t.radius_md + 2)
+        .inner_margin(t.pad * 2.0)
+        .shadow(ctx.global_style().visuals.window_shadow);
+    let out = egui::Modal::new(Id::unique(("confirm", id))).frame(frame).show(ctx, |ui| {
+        ui.set_width(400.0);
+        ui.spacing_mut().item_spacing = vec2(t.gap * 2.0, t.gap);
+        ui.horizontal_top(|ui| {
+            // the icon on a soft disc of its tone
+            let (disc, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+            ui.painter().circle_filled(disc.center(), 18.0, tone.gamma_multiply(0.16));
+            icon_at(ui.painter(), disc.center(), icon, 18.0, tone);
+            ui.add_space(t.gap);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = t.gap;
+                ui.label(RichText::new(title).font(FontId::proportional(Theme::TEXT_LG + 1.0)).strong().color(t.fg_text));
+                ui.add(egui::Label::new(RichText::new(body).font(Theme::body()).color(t.fg_muted)).wrap());
+            });
+        });
+        ui.add_space(t.pad * 1.5);
+        let mut picked = None;
+        // the primary answer wears the dialog's tone (red for what can't be undone)
+        let toned = Theme { accent: tone, ..t.clone() };
+        let t = &toned;
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = t.gap;
+            // laid out right to left: the primary answer, added first, takes the right edge
+            for (k, label) in answers.iter().enumerate() {
+                let variant = if k == 0 { Variant::Primary } else { Variant::Ghost };
+                if action(ui, t, variant, None, label).clicked() {
+                    picked = Some(k);
+                }
+            }
+        });
+        if ui.input(|i| i.key_pressed(Key::Enter)) {
+            picked = picked.or(Some(0));
+        }
+        picked
+    });
+    out.inner.or_else(|| out.should_close().then(|| answers.len().saturating_sub(1)))
 }
 
 /// Frame for floating editor windows: content draws its own bars, so no inner margin.

@@ -233,7 +233,13 @@ struct Audio {
     sr: f32,
     l: [f32; BLOCK],
     r: [f32; BLOCK],
+    /// Callbacks so far, up to [`WARM_UP`]: the first ones run cold (caches, the OS waking
+    /// the thread) and are late without anyone hearing it.
+    calls: u32,
 }
+
+/// Callbacks before a late one counts as a dropout.
+const WARM_UP: u32 = 200;
 
 impl Audio {
     fn handle(&mut self, msg: Msg) {
@@ -292,7 +298,8 @@ impl Audio {
         s.load.store(load.to_bits(), Relaxed);
         // a block that took longer than it lasts reached the device late: a dropout, even
         // where the driver doesn't report one
-        if load > 1.0 {
+        self.calls = (self.calls + 1).min(WARM_UP);
+        if load > 1.0 && self.calls >= WARM_UP {
             s.xruns.fetch_add(1, Relaxed);
         }
     }
@@ -386,6 +393,7 @@ fn open(dev: &cpal::Device, config: &StreamConfig, format: SampleFormat) -> Resu
         sr,
         l: [0.0; BLOCK],
         r: [0.0; BLOCK],
+        calls: 0,
     };
     let stream = match format {
         SampleFormat::F32 => build::<f32>(dev, config, audio, stats.clone()),

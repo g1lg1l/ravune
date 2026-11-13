@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, RichText};
 use ravune_core::{Project, Session};
 
-use crate::App;
 use crate::shell::Tone;
+use crate::{App, icons, kit};
 
 pub const EXTENSION: &str = "ravune";
 /// What Ravune opens: its own projects, and those saved while it was still called Phasor.
@@ -58,6 +58,11 @@ pub struct Version {
 fn versions_dir(project: &Path) -> PathBuf {
     let name = project.file_name().map_or("song".into(), |n| n.to_string_lossy().into_owned());
     project.with_file_name(format!(".{name}.versions"))
+}
+
+/// How many versions the song at `project` keeps (without reading them).
+pub fn version_count(project: &Path) -> usize {
+    std::fs::read_dir(versions_dir(project)).map_or(0, |d| d.flatten().filter(|e| e.path().extension().is_some_and(|x| x == EXTENSION)).count())
 }
 
 /// The versions of the song saved at `project`, newest first.
@@ -128,7 +133,7 @@ fn describe(old: &Project, new: &Project) -> String {
 }
 
 /// "just now", "5 min ago", "3 h ago", "2 days ago".
-fn ago(at: u64) -> String {
+pub fn ago(at: u64) -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     match now.saturating_sub(at) {
         s if s < 60 => tr!("just now").into(),
@@ -272,7 +277,7 @@ impl App {
         self.file.as_deref().and_then(Path::file_stem).map_or(tr!("Untitled").into(),|s| s.to_string_lossy().into_owned())
     }
 
-    fn load_project(&mut self, project: Project, file: Option<PathBuf>, saved: Project) {
+    pub fn load_project(&mut self, project: Project, file: Option<PathBuf>, saved: Project) {
         if let Some(e) = &mut self.engine {
             e.send(ravune_engine::Msg::AllNotesOff);
         }
@@ -350,7 +355,8 @@ impl App {
         self.settings.recent.truncate(10);
     }
 
-    pub fn open_dialog(&mut self) {
+    /// File → Open: false when nothing was picked.
+    pub fn open_dialog(&mut self) -> bool {
         let dialog = rfd::FileDialog::new()
             .add_filter(tr!("Ravune project"), &EXTENSIONS)
             .add_filter(tr!("DAWproject (from another DAW)"), &["dawproject"])
@@ -358,11 +364,13 @@ impl App {
         if let Some(path) = dialog.pick_file() {
             if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mid") || e.eq_ignore_ascii_case("midi")) {
                 self.import_midi(&path);
-                return;
+                return true;
             }
             let daw = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("dawproject"));
             self.request(if daw { Pending::Import(path) } else { Pending::Open(path) });
+            return true;
         }
+        false
     }
 
     /// File → Export → DAWproject: the song for Bitwig, Studio One, Cubase and others.
@@ -456,32 +464,46 @@ impl App {
 
     pub fn file_modals(&mut self, ctx: &egui::Context) {
         if let Some(list) = self.versions.take() {
+            let t = self.theme.clone();
             let mut open = None;
-            let mut close = false;
-            egui::Modal::new(egui::Id::unique("versions")).show(ctx, |ui| {
-                ui.set_width(440.0);
-                ui.label(RichText::new(tr!("Versions of {}", self.file_name())).heading());
-                ui.label(tr!("Every save is kept here. Open one to hear it: saving it makes it the song again, and the versions after it stay."));
-                ui.add_space(8.0);
+            let title = tr!("Versions of {}", self.file_name());
+            let (_, close) = kit::modal_flush(ctx, &t, "versions", &title, 520.0, |ui| {
+                egui::Frame::new().inner_margin(t.pad * 1.5).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(tr!("Every save is kept here. Open one to hear it: saving it makes it the song again, and the versions after it stay.")).color(t.fg_muted)).wrap());
+                });
                 if list.is_empty() {
-                    ui.label(tr!("No versions yet: they start with the next save"));
+                    egui::Frame::new().inner_margin(t.pad * 1.5).show(ui, |ui| ui.label(tr!("No versions yet: they start with the next save")));
                 }
-                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     for (k, v) in list.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            let when = if k == 0 { format!("{} · {}", ago(v.at), tr!("latest")) } else { ago(v.at) };
-                            ui.label(RichText::new(when).strong());
-                            ui.label(&v.note);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(tr!("Open")).clicked() {
-                                    open = Some(v.path.clone());
-                                }
-                            });
-                        });
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), egui::Sense::hover());
+                        let resp = ui.interact(rect, egui::Id::unique(("version", v.at)), egui::Sense::click());
+                        let hot = ui.rect_contains_pointer(rect);
+                        let painter = ui.painter_at(rect);
+                        if hot {
+                            painter.rect_filled(rect, 0.0, crate::theme::Theme::mix(t.bg_device, t.fg_text, 0.05));
+                        }
+                        painter.hline(rect.x_range(), rect.top() + 0.5, egui::Stroke::new(1.0, t.line.gamma_multiply(0.6)));
+                        // a dot on a line: the newest one lit
+                        let x = rect.left() + t.pad * 2.0;
+                        painter.vline(x, rect.y_range(), egui::Stroke::new(1.0, t.line));
+                        painter.circle_filled(egui::pos2(x, rect.center().y), 4.5, if k == 0 { t.accent } else { t.fg_muted });
+                        let when = if k == 0 { format!("{} · {}", ago(v.at), tr!("latest")) } else { ago(v.at) };
+                        painter.text(egui::pos2(x + 16.0, rect.center().y - 1.0), egui::Align2::LEFT_BOTTOM, if v.note.is_empty() { tr!("A save") } else { &v.note }, crate::theme::Theme::body(), t.fg_text);
+                        painter.text(egui::pos2(x + 16.0, rect.center().y + 2.0), egui::Align2::LEFT_TOP, when, egui::FontId::proportional(crate::theme::Theme::TEXT_SM), t.fg_muted);
+                        if hot {
+                            let button = egui::Rect::from_min_max(egui::pos2(rect.right() - 120.0, rect.top()), egui::pos2(rect.right() - t.pad * 1.5, rect.bottom()));
+                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(button).layout(egui::Layout::right_to_left(egui::Align::Center)));
+                            if kit::action(&mut child, &t, kit::Variant::Secondary, Some(icons::ARROW_COUNTER_CLOCKWISE), tr!("Open")).clicked() {
+                                open = Some(v.path.clone());
+                            }
+                        }
+                        if resp.double_clicked() {
+                            open = Some(v.path.clone());
+                        }
                     }
                 });
-                ui.add_space(8.0);
-                close = ui.button(tr!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
             });
             match open {
                 Some(path) => self.request(Pending::Version(path)),
@@ -489,17 +511,10 @@ impl App {
                 None => {}
             }
         }
+        let t = self.theme.clone();
         if let Some(action) = self.pending.take() {
-            let mut choice = None;
-            egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
-                ui.label(RichText::new(tr!("Save changes to {}?", self.file_name())).heading());
-                ui.label(tr!("Your changes will be lost if you don't save them."));
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    choice = [(tr!("Save"), 0), (tr!("Don't Save"), 1), (tr!("Cancel"), 2)].into_iter().find_map(|(label, n)| ui.button(label).clicked().then_some(n));
-                });
-            });
-            match choice {
+            let body = tr!("Your changes will be lost if you don't save them.");
+            match kit::confirm(ctx, &t, "unsaved", icons::FLOPPY_DISK, t.accent, &tr!("Save changes to {}?", self.file_name()), body, &[tr!("Save"), tr!("Don't Save"), tr!("Cancel")]) {
                 Some(0) if self.save() => self.perform(action),
                 Some(1) => self.perform(action),
                 Some(2) => {}
@@ -507,17 +522,8 @@ impl App {
             }
         }
         if let Some(report) = self.crash.take() {
-            let mut choice = None;
-            egui::Modal::new(egui::Id::unique("crashed")).show(ctx, |ui| {
-                ui.set_max_width(440.0);
-                ui.label(RichText::new(tr!("Ravune closed unexpectedly")).heading());
-                ui.label(tr!("Sorry about that. A report of what went wrong stayed on this computer: sending it helps fix it. It holds Ravune's version, your system and where the code failed, nothing from your projects."));
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    choice = [(tr!("Report on GitHub"), 0), (tr!("Copy the report"), 1), (tr!("Close"), 2)].into_iter().find_map(|(label, k)| ui.button(label).clicked().then_some(k));
-                });
-            });
-            match choice {
+            let body = tr!("Sorry about that. A report of what went wrong stayed on this computer: sending it helps fix it. It holds Ravune's version, your system and where the code failed, nothing from your projects.");
+            match kit::confirm(ctx, &t, "crashed", icons::BUG, t.meter_hot, tr!("Ravune closed unexpectedly"), body, &[tr!("Report on GitHub"), tr!("Copy the report"), tr!("Close")]) {
                 Some(0) => ctx.open_url(egui::OpenUrl::new_tab(crash_issue_url(&report))),
                 Some(1) => {
                     ctx.copy_text(report);
@@ -525,23 +531,6 @@ impl App {
                 }
                 Some(_) => {}
                 None => self.crash = Some(report),
-            }
-            return;
-        }
-        if let Some(project) = self.recovery.take() {
-            let mut choice = None;
-            egui::Modal::new(egui::Id::unique("recover")).show(ctx, |ui| {
-                ui.label(RichText::new(tr!("Restore unsaved work?")).heading());
-                ui.label(tr!("Ravune closed with unsaved changes last time. You can pick up where you left off."));
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    choice = [(tr!("Restore"), true), (tr!("Discard"), false)].into_iter().find_map(|(label, b)| ui.button(label).clicked().then_some(b));
-                });
-            });
-            match choice {
-                Some(true) => self.load_project(project, None, Project::default()),
-                Some(false) => {}
-                None => self.recovery = Some(project),
             }
         }
     }

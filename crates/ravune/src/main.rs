@@ -38,6 +38,7 @@ mod script;
 mod rack;
 mod shell;
 mod specimen;
+mod start;
 mod theme;
 mod usage;
 mod visualizer;
@@ -177,6 +178,8 @@ struct Settings {
     show_ghosts: bool,
     /// The visualizer: shown, where, spectrum or scope.
     viz: visualizer::Prefs,
+    /// Open on the start page (recent songs, templates) when no song was asked for.
+    show_start: bool,
 }
 
 impl Default for Settings {
@@ -217,6 +220,7 @@ impl Default for Settings {
             snap_cuts: false,
             show_ghosts: false,
             viz: visualizer::Prefs::default(),
+            show_start: true,
         }
     }
 }
@@ -358,6 +362,8 @@ struct App {
     last_autosave: f64,
     pending: Option<files::Pending>,
     recovery: Option<Project>,
+    /// The start page, while it's open.
+    start: Option<start::Start>,
     /// File → Versions… while it's open: the saved project's versions, newest first.
     versions: Option<Vec<files::Version>>,
     /// "Save changes?" was answered on the way out: close for real.
@@ -449,6 +455,7 @@ impl App {
             last_autosave: 0.0,
             pending: None,
             recovery,
+            start: None,
             versions: None,
             quit: false,
             crash: None,
@@ -478,12 +485,23 @@ impl App {
         app.start_engine(0.0);
         app.start_scan(false);
         // RAVUNE_CAPTURE=extensions (or agents, look…): opens on that Preferences tab, for screenshots
-        if let Some(tab) = std::env::var("RAVUNE_CAPTURE").ok().and_then(|v| shell::PrefsTab::named(&v)) {
+        let capture = std::env::var("RAVUNE_CAPTURE").ok();
+        let prefs = capture.as_deref().and_then(shell::PrefsTab::named);
+        if let Some(tab) = prefs {
             (app.show_settings, app.prefs_tab) = (true, tab);
         }
-        // `ravune song.ravune` (also what double-clicking a project file does)
-        if let Some(path) = std::env::args_os().nth(1) {
-            app.request(files::Pending::Open(path.into()));
+        // `ravune song.ravune` (also what double-clicking a project file does); with no song,
+        // the start page (always when there's unsaved work to offer back)
+        match std::env::args_os().nth(1) {
+            Some(path) => app.request(files::Pending::Open(path.into())),
+            None if app.recovery.is_some() || app.settings.show_start && prefs.is_none() && capture.as_deref() != Some("1") => app.show_start(),
+            None => {}
+        }
+        // RAVUNE_CAPTURE=versions / unsaved: those dialogs, for screenshots
+        match capture.as_deref() {
+            Some("versions") => app.show_versions(),
+            Some("unsaved") => app.pending = Some(files::Pending::New),
+            _ => {}
         }
         app
     }
@@ -688,7 +706,10 @@ impl App {
         match id {
             "app.palette" => self.open_palette(),
             "app.new" => self.request(files::Pending::New),
-            "app.open" => self.open_dialog(),
+            "app.open" => {
+                self.open_dialog();
+            }
+            "app.start" => self.show_start(),
             "app.save" => {
                 self.save();
             }
@@ -1051,6 +1072,7 @@ impl eframe::App for App {
         self.lesson_card(&ctx, now);
         self.rename_dialog(&ctx);
         self.palette_ui(&ctx);
+        self.start_page(&ctx);
         self.file_modals(&ctx);
         self.specimen_ui(&ctx, frame.info().cpu_usage);
         self.toast_ui(&ctx);
