@@ -18,6 +18,8 @@ use crate::{App, icons};
 pub struct Start {
     songs: Vec<Song>,
     query: String,
+    /// Your templates: where, called what, at what tempo.
+    mine: Vec<(PathBuf, String, f32)>,
 }
 
 struct Song {
@@ -47,8 +49,27 @@ impl Start {
                 Song { path, name, folder, modified, versions }
             })
             .collect();
-        Start { songs, query: String::new() }
+        let mine = files::user_templates()
+            .into_iter()
+            .map(|p| {
+                let name = p.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+                let bpm = files::read(&p).map_or(0.0, |song| song.tempo);
+                (p, name, bpm)
+            })
+            .collect();
+        Start { songs, query: String::new(), mine }
     }
+
+    /// A template deleted while the page shows it.
+    pub fn forget_template(&mut self, path: &Path) {
+        self.mine.retain(|(p, ..)| p != path);
+    }
+}
+
+/// A card in the template grid: what it opens.
+enum Pick {
+    Bundled(&'static str),
+    Mine(PathBuf),
 }
 
 /// The page's size: big, within the window.
@@ -169,7 +190,11 @@ impl App {
         });
         let query = page.query.to_lowercase();
         let shown: Vec<usize> = (0..page.songs.len()).filter(|&k| query.is_empty() || page.songs[k].name.to_lowercase().contains(&query)).collect();
-        let templates_h = 2.0 * 64.0 + 3.0 * t.gap + 30.0;
+        let cols = 4;
+        let rows = (files::TEMPLATES.len() + page.mine.len()).div_ceil(cols);
+        // two rows show; more scroll
+        let grid_h = rows.min(2) as f32 * (64.0 + t.gap);
+        let templates_h = grid_h + t.gap + 30.0;
         let list_h = (ui.available_height() - templates_h - t.pad * 2.0).max(96.0);
         let mut forget = None;
         Frame::new().fill(t.bg_panel).stroke(Stroke::new(1.0, t.line)).corner_radius(t.radius_md).show(ui, |ui| {
@@ -204,18 +229,45 @@ impl App {
 
         ui.add_space(t.pad);
         ui.label(RichText::new(tr!("Start from a template")).font(FontId::proportional(Theme::TEXT_LG)).strong().color(t.fg_text));
-        let cols = 4;
-        let w = (ui.available_width() - t.gap * (cols as f32 - 1.0)) / cols as f32;
-        for (row, chunk) in files::TEMPLATES.chunks(cols).enumerate() {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = t.gap;
-                for (c, (name, text)) in chunk.iter().enumerate() {
-                    if template_card(ui, t, name, row * cols + c, w).clicked() {
-                        self.request(Pending::Bundled(text));
-                        done = true;
+        let w = (ui.available_width() - t.gap * (cols as f32 - 1.0) - 8.0) / cols as f32;
+        // yours first: they're the ones you made for this
+        let mut cards: Vec<(String, String, Pick)> = page.mine.iter().map(|(p, name, bpm)| (name.clone(), tr!("Yours · {} BPM", format!("{bpm:.0}")), Pick::Mine(p.clone()))).collect();
+        cards.extend(files::TEMPLATES.iter().map(|(name, text)| {
+            let (genre, bpm) = name.split_once(" · ").unwrap_or((name, ""));
+            (genre.to_string(), bpm.to_string(), Pick::Bundled(text))
+        }));
+        let mut chosen = None;
+        let mine = page.mine.len();
+        egui::ScrollArea::vertical().id_salt("start-templates").max_height(grid_h).auto_shrink([false, true]).show(ui, |ui| {
+            for (row, chunk) in cards.chunks(cols).enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = t.gap;
+                    for (c, (name, detail, pick)) in chunk.iter().enumerate() {
+                        // a genre keeps its color however many of yours come before it
+                        let k = (row * cols + c).saturating_sub(mine);
+                        match template_card(ui, t, name, detail, k, w, matches!(pick, Pick::Mine(_))) {
+                            Card::Open => chosen = Some(pick),
+                            Card::Delete => {
+                                if let Pick::Mine(path) = pick {
+                                    self.doomed_template = Some(path.clone());
+                                }
+                            }
+                            Card::None => {}
+                        }
                     }
-                }
-            });
+                });
+            }
+        });
+        match chosen {
+            Some(Pick::Bundled(text)) => {
+                self.request(Pending::Bundled(text));
+                done = true;
+            }
+            Some(Pick::Mine(path)) => {
+                self.request(Pending::Template(path.clone()));
+                done = true;
+            }
+            None => {}
         }
         done
     }
@@ -321,20 +373,36 @@ fn song_row(ui: &mut Ui, t: &Theme, song: &Song) -> Option<RowAction> {
     action
 }
 
-/// A template as a card: its genre, its tempo, a stripe of its color.
-fn template_card(ui: &mut Ui, t: &Theme, name: &str, k: usize, width: f32) -> egui::Response {
+enum Card {
+    None,
+    Open,
+    Delete,
+}
+
+/// A template as a card: its name, its tempo, a stripe of its color; one of yours has a
+/// delete button when hovered.
+#[allow(clippy::too_many_arguments)]
+fn template_card(ui: &mut Ui, t: &Theme, name: &str, detail: &str, k: usize, width: f32, mine: bool) -> Card {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 64.0), Sense::click());
     let h = kit::hover(ui, t, &resp);
-    let [r, g, b] = PATTERN_COLORS[(k * 3) % PATTERN_COLORS.len()];
-    let color = Color32::from_rgb(r, g, b);
+    let color = if mine { t.accent } else {
+        let [r, g, b] = PATTERN_COLORS[(k * 3) % PATTERN_COLORS.len()];
+        Color32::from_rgb(r, g, b)
+    };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(t.radius_md), Theme::mix(t.bg_panel, color, 0.06 + 0.1 * h));
     painter.rect_stroke(rect, CornerRadius::same(t.radius_md), Stroke::new(1.0, Theme::mix(t.line, color, 0.3 + 0.5 * h)), StrokeKind::Inside);
     painter.rect_filled(Rect::from_min_size(rect.min, vec2(4.0, rect.height())), CornerRadius { nw: t.radius_md, sw: t.radius_md, ne: 0, se: 0 }, color);
-    let (genre, bpm) = name.split_once(" · ").unwrap_or((name, ""));
-    painter.text(pos2(rect.left() + 16.0, rect.center().y - 1.0), Align2::LEFT_BOTTOM, genre, Theme::body(), t.fg_text);
-    painter.text(pos2(rect.left() + 16.0, rect.center().y + 3.0), Align2::LEFT_TOP, bpm, Theme::mono(Theme::TEXT_SM), t.fg_muted);
+    kit::fit_text(painter, pos2(rect.left() + 16.0, rect.center().y - 1.0), Align2::LEFT_BOTTOM, name, Theme::body(), t.fg_text, rect.width() - 44.0);
+    painter.text(pos2(rect.left() + 16.0, rect.center().y + 3.0), Align2::LEFT_TOP, detail, Theme::mono(Theme::TEXT_SM), t.fg_muted);
     kit::focus_ring(ui, t, &resp, t.radius_md);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
-    resp
+    if mine && ui.rect_contains_pointer(rect) {
+        let corner = Rect::from_min_size(pos2(rect.right() - 30.0, rect.top() + 4.0), vec2(26.0, 26.0));
+        let mut child = ui.new_child(UiBuilder::new().max_rect(corner));
+        if kit::icon_button(&mut child, t, icons::TRASH, tr!("Delete this template"), false).clicked() {
+            return Card::Delete;
+        }
+    }
+    if resp.clicked() { Card::Open } else { Card::None }
 }

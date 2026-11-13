@@ -362,6 +362,8 @@ struct App {
     last_autosave: f64,
     pending: Option<files::Pending>,
     recovery: Option<Project>,
+    /// One of your templates, waiting on "delete it?".
+    doomed_template: Option<PathBuf>,
     /// The start page, while it's open.
     start: Option<start::Start>,
     /// File → Versions… while it's open: the saved project's versions, newest first.
@@ -456,6 +458,7 @@ impl App {
             pending: None,
             recovery,
             start: None,
+            doomed_template: None,
             versions: None,
             quit: false,
             crash: None,
@@ -497,10 +500,11 @@ impl App {
             None if app.recovery.is_some() || app.settings.show_start && prefs.is_none() && capture.as_deref() != Some("1") => app.show_start(),
             None => {}
         }
-        // RAVUNE_CAPTURE=versions / unsaved: those dialogs, for screenshots
+        // RAVUNE_CAPTURE=versions / unsaved / template: those dialogs, for screenshots
         match capture.as_deref() {
             Some("versions") => app.show_versions(),
             Some("unsaved") => app.pending = Some(files::Pending::New),
+            Some("template") => app.ask_template_name(),
             _ => {}
         }
         app
@@ -710,6 +714,7 @@ impl App {
                 self.open_dialog();
             }
             "app.start" => self.show_start(),
+            "app.save_template" => self.ask_template_name(),
             "app.save" => {
                 self.save();
             }
@@ -1074,6 +1079,7 @@ impl eframe::App for App {
         self.palette_ui(&ctx);
         self.start_page(&ctx);
         self.file_modals(&ctx);
+        self.template_modals(&ctx);
         self.specimen_ui(&ctx, frame.info().cpu_usage);
         self.toast_ui(&ctx);
         kit::sparks(&ctx, &mut self.sparks, now);

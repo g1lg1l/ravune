@@ -42,6 +42,23 @@ pub enum Pending {
     Version(PathBuf),
 }
 
+/// Where your own templates live: Documents/Ravune/Templates, beside the library.
+pub fn templates_dir() -> PathBuf {
+    crate::browser::library_dir().with_file_name("Templates")
+}
+
+/// Your templates, by name.
+pub fn user_templates() -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(templates_dir()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == EXTENSION)).collect();
+    found.sort_by_key(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()));
+    found
+}
+
+/// A name that's safe as a file name everywhere.
+fn file_safe(name: &str) -> String {
+    name.trim().chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c }).collect()
+}
+
 /// How many versions a song keeps (the oldest go first).
 const MAX_VERSIONS: usize = 200;
 
@@ -454,6 +471,47 @@ impl App {
     }
 
     /// "Save changes?" and "restore unsaved work?" dialogs.
+    /// File → Save as Template…: asks for a name (the song's, to start with).
+    pub fn ask_template_name(&mut self) {
+        self.rename = Some(crate::shell::Renaming::new(crate::shell::Rename::Template, self.file_name()));
+    }
+
+    /// Keeps the song as a template called `name`: File → New from Template and the start
+    /// page offer it from then on. One of the same name is replaced.
+    pub fn save_template(&mut self, name: &str) {
+        self.store_plugin_states();
+        let name = file_safe(name);
+        let path = templates_dir().join(format!("{name}.{EXTENSION}"));
+        let replaced = path.exists();
+        let saved = std::fs::create_dir_all(templates_dir()).map_err(|e| e.to_string()).and_then(|_| write(&path, &self.session.project));
+        match saved {
+            Ok(()) if replaced => self.say_as(Tone::Done, tr!("Replaced the template \"{}\"", name)),
+            Ok(()) => self.say_as(Tone::Done, tr!("Saved the template \"{}\": it's in New from Template and on the start page", name)),
+            Err(e) => self.say_as(Tone::Error, tr!("Couldn't save the template: {}", e)),
+        }
+    }
+
+    /// Asks before deleting one of your templates (the file goes to nowhere: it's your copy).
+    pub fn template_modals(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.doomed_template.take() else { return };
+        let t = self.theme.clone();
+        let name = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+        let body = tr!("It's deleted from the disk for good. Songs you started from it keep everything they have.");
+        match kit::confirm(ctx, &t, "delete-template", icons::TRASH, t.meter_hot, &tr!("Delete the template \"{}\"?", name), body, &[tr!("Delete"), tr!("Cancel")]) {
+            Some(0) => match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    self.say_as(Tone::Done, tr!("Deleted the template \"{}\"", name));
+                    if let Some(page) = &mut self.start {
+                        page.forget_template(&path);
+                    }
+                }
+                Err(e) => self.say_as(Tone::Error, tr!("Couldn't delete it: {}", e)),
+            },
+            Some(_) => {}
+            None => self.doomed_template = Some(path),
+        }
+    }
+
     /// File → Versions…
     pub fn show_versions(&mut self) {
         match &self.file {
@@ -561,6 +619,13 @@ mod tests {
         assert_eq!(list[1].note, "First save");
         assert_eq!(read(&list[0].path).unwrap(), project);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A template's name becomes a file name that works on every system.
+    #[test]
+    fn template_names_are_file_safe() {
+        assert_eq!(file_safe("  Techno: Dark/Hard?  "), "Techno_ Dark_Hard_");
+        assert_eq!(file_safe("Ma chérie"), "Ma chérie");
     }
 
     #[test]

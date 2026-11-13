@@ -17,7 +17,7 @@ const fn cmd(group: &'static str, id: &'static str, label: &'static str) -> Comm
     Command { id, label, group }
 }
 
-pub const COMMANDS: [Command; 40] = [
+pub const COMMANDS: [Command; 41] = [
     cmd("Transport", "transport.play_toggle", "Play / stop (besides Space)"),
     cmd("Transport", "transport.mode_toggle", "Pattern / song mode"),
     cmd("Transport", "transport.metronome_toggle", "Metronome"),
@@ -31,6 +31,7 @@ pub const COMMANDS: [Command; 40] = [
     cmd("Project", "app.save", "Save"),
     cmd("Project", "app.save_as", "Save as"),
     cmd("Project", "app.versions", "Versions of this song"),
+    cmd("Project", "app.save_template", "Save as template"),
     cmd("Project", "app.export", "Export audio (last format)"),
     cmd("Project", "app.credits", "Export credits"),
     cmd("Project", "pattern.add", "New pattern"),

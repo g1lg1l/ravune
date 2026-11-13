@@ -75,6 +75,8 @@ pub enum Rename {
     Device(u32),
     /// A marker, by index.
     Marker(usize),
+    /// The song, kept as a template under this name (File → Save as Template).
+    Template,
 }
 
 pub struct Renaming {
@@ -398,12 +400,13 @@ impl App {
     }
 
     fn file_menu(&mut self, ui: &mut Ui) {
-        let items: [(&str, &str, &str); 8] = [
+        let items: [(&str, &str, &str); 9] = [
             (icons::SQUARES_FOUR, tr!("Start Page"), "app.start"),
             (icons::FILE_PLUS, tr!("New"), "app.new"),
             (icons::FOLDER_OPEN, tr!("Open…"), "app.open"),
             (icons::FLOPPY_DISK, tr!("Save"), "app.save"),
             (icons::FLOPPY_DISK, tr!("Save As…"), "app.save_as"),
+            (icons::STACK, tr!("Save as Template…"), "app.save_template"),
             (icons::CLOCK_COUNTER_CLOCKWISE, tr!("Versions…"), "app.versions"),
             (icons::EXPORT, tr!("Export"), "app.export"),
             (icons::GLOBE, tr!("Export credits…"), "app.credits"),
@@ -441,6 +444,25 @@ impl App {
                             ui.close();
                         }
                     }
+                    // yours (right-click deletes one)
+                    let yours = files::user_templates();
+                    if !yours.is_empty() {
+                        ui.separator();
+                    }
+                    for path in yours {
+                        let name = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+                        let r = ui.button(format!("{}  {name}", icons::STAR));
+                        if r.clicked() {
+                            self.request(files::Pending::Template(path.clone()));
+                            ui.close();
+                        }
+                        r.context_menu(|ui| {
+                            if ui.button(tr!("{}  Delete", icons::TRASH)).clicked() {
+                                self.doomed_template = Some(path.clone());
+                                ui.close();
+                            }
+                        });
+                    }
                     // and the ones extensions bring
                     let more = crate::extensions::files("templates");
                     if !more.is_empty() {
@@ -459,7 +481,7 @@ impl App {
                     self.install_extension_file(ui.ctx());
                 }
             }
-            if i == 1 || i == 3 || i == 6 {
+            if i == 1 || i == 3 || i == 7 {
                 ui.separator();
             }
             let keys = self.settings.keymap.keys(command).first().map(keymap::text).unwrap_or_default();
@@ -498,6 +520,9 @@ impl App {
                 continue;
             }
             let r = ui.add(egui::Button::new(format!("{icon}  {label}")).shortcut_text(keys));
+            if command == "app.save_template" {
+                self.hint(&r, tr!("Keep this song as a starting point for new ones: your sounds, mixer and patterns"));
+            }
             if command == "app.versions" {
                 self.hint(&r, tr!("Every save is kept: go back to how the song was before"));
             }
@@ -1474,7 +1499,9 @@ impl App {
             Rename::Workspace(_) => tr!("Rename workspace"),
             Rename::Lane(_) => tr!("Rename lane"),
             Rename::Marker(_) => tr!("Rename marker"),
+            Rename::Template => tr!("Save as template"),
         };
+        let verb = if matches!(r.what, Rename::Template) { tr!("Save") } else { tr!("Rename") };
         let (confirm, close) = kit::modal(ctx, &t, "rename", title, 340.0, |ui| {
             let edit = ui.add(kit::field(&mut r.text).desired_width(f32::INFINITY));
             if !r.focused {
@@ -1483,7 +1510,7 @@ impl App {
             }
             let mut confirm = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             ui.horizontal(|ui| {
-                confirm |= kit::button(ui, &t, Some(icons::CHECK), tr!("Rename"), true).clicked();
+                confirm |= kit::button(ui, &t, Some(icons::CHECK), verb, true).clicked();
                 ui.label(RichText::new(tr!("Enter to confirm · Esc to cancel")).small().color(t.fg_muted));
             });
             confirm
@@ -1499,6 +1526,7 @@ impl App {
                     Rename::Macro(i) => self.run("macro.set", json!({ "index": i, "name": name })),
                     Rename::Lane(l) => self.run("lane.set", json!({ "lane": l, "name": name })),
                     Rename::Marker(k) => self.run("marker.set", json!({ "index": k, "name": name })),
+                    Rename::Template => self.save_template(&name),
                     Rename::Workspace(i) => {
                         if let Some(w) = self.settings.workspaces.get_mut(i) {
                             w.name = name;
