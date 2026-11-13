@@ -36,6 +36,104 @@ pub enum Pending {
     Template(PathBuf),
     /// Close and open the update that's ready.
     Restart,
+    /// An earlier version of the open song (File → Versions…).
+    Version(PathBuf),
+}
+
+/// How many versions a song keeps (the oldest go first).
+const MAX_VERSIONS: usize = 200;
+
+/// One save of a song, kept beside it.
+pub struct Version {
+    pub path: PathBuf,
+    /// Seconds since 1970 when it was saved.
+    pub at: u64,
+    /// What changed since the version before.
+    pub note: String,
+}
+
+/// Where the versions of `project` live: `.<name>.versions/` beside it, so they travel with it.
+fn versions_dir(project: &Path) -> PathBuf {
+    let name = project.file_name().map_or("song".into(), |n| n.to_string_lossy().into_owned());
+    project.with_file_name(format!(".{name}.versions"))
+}
+
+/// The versions of the song saved at `project`, newest first.
+pub fn versions(project: &Path) -> Vec<Version> {
+    let Ok(entries) = std::fs::read_dir(versions_dir(project)) else { return Vec::new() };
+    let mut list: Vec<Version> = entries
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let at = path.file_stem()?.to_str()?.parse().ok()?;
+            let text = std::fs::read_to_string(&path).ok()?;
+            let note = text.lines().next().and_then(|l| l.strip_prefix("// ")).unwrap_or("").to_string();
+            Some(Version { path, at, note })
+        })
+        .collect();
+    list.sort_by_key(|v| std::cmp::Reverse(v.at));
+    list
+}
+
+/// Keeps `project` as a new version of the song at `path`, unless it's the same as the last
+/// one. Its first line says what changed.
+fn keep_version(path: &Path, project: &Project) -> Result<(), String> {
+    let list = versions(path);
+    let last = list.first().and_then(|v| read(&v.path).ok());
+    if last.as_ref() == Some(project) {
+        return Ok(());
+    }
+    let note = last.as_ref().map_or_else(|| tr!("First save").to_string(), |old| describe(old, project));
+    let dir = versions_dir(path);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    // two saves in one second: the later one a second on
+    let at = list.first().map_or(now, |v| now.max(v.at + 1));
+    let text = ron::ser::to_string_pretty(project, ron::ser::PrettyConfig::default()).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{at}.{EXTENSION}")), format!("// {note}\n{text}")).map_err(|e| e.to_string())?;
+    for old in list.iter().skip(MAX_VERSIONS - 1) {
+        let _ = std::fs::remove_file(&old.path);
+    }
+    Ok(())
+}
+
+/// What changed from `old` to `new`, in a few words: "Added Bass · Tempo 120 → 124 · Notes".
+fn describe(old: &Project, new: &Project) -> String {
+    let names = |p: &Project| p.channels.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+    let (before, after) = (names(old), names(new));
+    let mut parts: Vec<String> = Vec::new();
+    parts.extend(after.iter().filter(|n| !before.contains(n)).map(|n| tr!("Added {}", n)));
+    parts.extend(before.iter().filter(|n| !after.contains(n)).map(|n| tr!("Removed {}", n)));
+    if old.tempo != new.tempo {
+        parts.push(tr!("Tempo {} → {}", old.tempo, new.tempo));
+    }
+    if parts.is_empty() && old.channels != new.channels {
+        parts.push(tr!("Sounds").into());
+    }
+    if old.patterns != new.patterns {
+        parts.push(tr!("Notes").into());
+    }
+    if old.clips != new.clips || old.markers != new.markers {
+        parts.push(tr!("Arrangement").into());
+    }
+    if old.mixer != new.mixer {
+        parts.push(tr!("Mixer").into());
+    }
+    if parts.is_empty() {
+        parts.push(tr!("Small changes").into());
+    }
+    parts.join(" · ")
+}
+
+/// "just now", "5 min ago", "3 h ago", "2 days ago".
+fn ago(at: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    match now.saturating_sub(at) {
+        s if s < 60 => tr!("just now").into(),
+        s if s < 3600 => tr!("{} min ago", s / 60),
+        s if s < 86_400 => tr!("{} h ago", s / 3600),
+        s => tr!("{} days ago", s / 86_400),
+    }
 }
 
 /// Where Ravune keeps its settings, autosave and crash lock: `RAVUNE_DATA` when set (a
@@ -209,6 +307,15 @@ impl App {
                 }
             }
             Pending::Restart => self.ext.restart = true,
+            Pending::Version(path) => match read(&path) {
+                // the song's file stays the same, and what's on disk stays what's saved: saving keeps this version
+                Ok(project) => {
+                    let (file, saved) = (self.file.clone(), self.saved.clone());
+                    self.load_project(project, file, saved);
+                    self.say_as(Tone::Done, tr!("Back to an earlier version: save to keep it, or open another"));
+                }
+                Err(e) => self.say_as(Tone::Error, e),
+            },
             Pending::Template(path) => match read(&path) {
                 Ok(project) => self.load_project(project.clone(), None, project),
                 Err(e) => self.say_as(Tone::Error, e),
@@ -274,6 +381,9 @@ impl App {
         self.store_plugin_states();
         match write(&path, &self.session.project) {
             Ok(()) => {
+                if let Err(e) = keep_version(&path, &self.session.project) {
+                    self.say_as(Tone::Error, tr!("Saved, but couldn't keep a version: {}", e));
+                }
                 self.saved = self.session.project.clone();
                 self.remember(&path);
                 self.file = Some(path);
@@ -322,7 +432,49 @@ impl App {
     }
 
     /// "Save changes?" and "restore unsaved work?" dialogs.
+    /// File → Versions…
+    pub fn show_versions(&mut self) {
+        match &self.file {
+            Some(path) => self.versions = Some(versions(path)),
+            None => self.say_as(Tone::Info, tr!("Save the song first: every save after that is kept as a version")),
+        }
+    }
+
     pub fn file_modals(&mut self, ctx: &egui::Context) {
+        if let Some(list) = self.versions.take() {
+            let mut open = None;
+            let mut close = false;
+            egui::Modal::new(egui::Id::unique("versions")).show(ctx, |ui| {
+                ui.set_width(440.0);
+                ui.label(RichText::new(tr!("Versions of {}", self.file_name())).heading());
+                ui.label(tr!("Every save is kept here. Open one to hear it: saving it makes it the song again, and the versions after it stay."));
+                ui.add_space(8.0);
+                if list.is_empty() {
+                    ui.label(tr!("No versions yet: they start with the next save"));
+                }
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    for (k, v) in list.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let when = if k == 0 { format!("{} · {}", ago(v.at), tr!("latest")) } else { ago(v.at) };
+                            ui.label(RichText::new(when).strong());
+                            ui.label(&v.note);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(tr!("Open")).clicked() {
+                                    open = Some(v.path.clone());
+                                }
+                            });
+                        });
+                    }
+                });
+                ui.add_space(8.0);
+                close = ui.button(tr!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            });
+            match open {
+                Some(path) => self.request(Pending::Version(path)),
+                None if !close => self.versions = Some(list),
+                None => {}
+            }
+        }
         if let Some(action) = self.pending.take() {
             let mut choice = None;
             egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
@@ -384,6 +536,29 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each save that changes something is a version, newest first, saying what changed;
+    /// a version opens as a project.
+    #[test]
+    fn saves_keep_versions() {
+        let dir = std::env::temp_dir().join(format!("ravune-versions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("song.ravune");
+        let mut project: Project = ron::from_str(TEMPLATES[0].1).unwrap();
+        keep_version(&path, &project).unwrap();
+        keep_version(&path, &project).unwrap();
+        assert_eq!(versions(&path).len(), 1, "the same song twice is one version");
+        project.tempo = 124.0;
+        keep_version(&path, &project).unwrap();
+        let list = versions(&path);
+        assert_eq!(list.len(), 2);
+        assert!(list[0].at > list[1].at);
+        assert_eq!(list[0].note, "Tempo 130 → 124");
+        assert_eq!(list[1].note, "First save");
+        assert_eq!(read(&list[0].path).unwrap(), project);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_crash_report_becomes_an_issue_link() {

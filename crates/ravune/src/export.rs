@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, mpsc};
 
-use ravune_engine::{Mode, Song, Transport, render_offline, write_wav_as};
+use ravune_engine::{Mode, Song, Transport, lufs, render_offline, true_peak, write_wav_as};
 use serde::{Deserialize, Serialize};
 
 use crate::App;
@@ -20,8 +20,11 @@ const TAIL_SECONDS: f32 = 2.0;
 
 pub struct Export {
     progress: Arc<AtomicU32>,
-    done: mpsc::Receiver<Result<PathBuf, String>>,
+    done: mpsc::Receiver<Result<Exported, String>>,
 }
+
+/// Where an export went, and the song's loudness (LUFS, dBTP) when it's one file.
+type Exported = (PathBuf, Option<(f32, f32)>);
 
 /// What File → Export writes (the last one picked is what the export key repeats).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,7 +195,8 @@ impl App {
         let shared = progress.clone();
         std::thread::spawn(move || {
             let frames = render_offline(song, RATE as f32, TAIL_SECONDS, |p| shared.store(p.to_bits(), Relaxed));
-            let _ = tx.send(encode(format, &path, &frames, RATE).map(|_| path));
+            let loudness = (lufs(&frames, RATE as f32), 20.0 * true_peak(&frames).max(1e-9).log10());
+            let _ = tx.send(encode(format, &path, &frames, RATE).map(|_| (path, Some(loudness))));
         });
         self.export = Some(Export { progress, done });
     }
@@ -239,7 +243,7 @@ impl App {
                     written += 1;
                 }
             }
-            let _ = tx.send(if written > 0 { Ok(folder) } else { Err(tr!("every track was silent").into()) });
+            let _ = tx.send(if written > 0 { Ok((folder, None)) } else { Err(tr!("every track was silent").into()) });
         });
         self.export = Some(Export { progress, done });
     }
@@ -258,7 +262,15 @@ impl App {
         };
         self.export = None;
         match result {
-            Ok(path) => self.say_as(Tone::Done, tr!("Exported {}", path.display())),
+            Ok((path, None)) => self.say_as(Tone::Done, tr!("Exported {}", path.display())),
+            Ok((path, Some((lufs, peak)))) => {
+                let mut text = tr!("Exported {} · {} LUFS · true peak {} dBTP", path.display(), format!("{lufs:.1}"), format!("{peak:.1}"));
+                // streaming services turn louder songs down to about -14 LUFS, and their encoders clip peaks over -1 dBTP
+                if peak > -1.0 {
+                    text += tr!(" · peaks over -1 dBTP can distort once streamed: turn the master down a little");
+                }
+                self.say_as(if peak > -1.0 { Tone::Info } else { Tone::Done }, text);
+            }
             Err(e) => self.say_as(Tone::Error, tr!("Export failed: {}", e)),
         }
     }

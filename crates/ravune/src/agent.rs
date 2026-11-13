@@ -404,6 +404,8 @@ impl App {
             "seconds": a.seconds,
             "peak_db": (a.peak_db * 10.0).round() / 10.0,
             "rms_db": (a.rms_db * 10.0).round() / 10.0,
+            "lufs": (a.lufs * 10.0).round() / 10.0,
+            "true_peak_db": (a.true_peak_db * 10.0).round() / 10.0,
             "band_share_db": bands,
             "stereo_width_db": (a.width_db * 10.0).round() / 10.0,
             "onsets": a.onsets.len(),

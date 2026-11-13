@@ -199,6 +199,12 @@ impl App {
                 self.session.close_merge();
             }
             self.hint(&r, tr!("Tempo in beats per minute: drag up / down, or double-click to type."));
+            let r = kit::button(ui, &t, None, "TAP", false);
+            if r.clicked() {
+                self.tap_tempo();
+            }
+            let tip = self.tip(tr!("Tap tempo: click on the beat a few times and the tempo follows"), "app.tap_tempo");
+            self.hint(&r, tip);
             let r = kit::icon_button(ui, &t, icons::METRONOME, &self.tip(tr!("Metronome"), "transport.metronome_toggle"), self.session.project.metronome);
             if r.clicked() {
                 self.run("transport.metronome_toggle", json!({}));
@@ -367,11 +373,12 @@ impl App {
     }
 
     fn file_menu(&mut self, ui: &mut Ui) {
-        let items: [(&str, &str, &str); 6] = [
+        let items: [(&str, &str, &str); 7] = [
             (icons::FILE_PLUS, tr!("New"), "app.new"),
             (icons::FOLDER_OPEN, tr!("Open…"), "app.open"),
             (icons::FLOPPY_DISK, tr!("Save"), "app.save"),
             (icons::FLOPPY_DISK, tr!("Save As…"), "app.save_as"),
+            (icons::CLOCK_COUNTER_CLOCKWISE, tr!("Versions…"), "app.versions"),
             (icons::EXPORT, tr!("Export"), "app.export"),
             (icons::GLOBE, tr!("Export credits…"), "app.credits"),
         ];
@@ -426,7 +433,7 @@ impl App {
                     self.install_extension_file(ui.ctx());
                 }
             }
-            if i == 2 || i == 4 {
+            if i == 2 || i == 5 {
                 ui.separator();
             }
             let keys = self.settings.keymap.keys(command).first().map(keymap::text).unwrap_or_default();
@@ -459,6 +466,9 @@ impl App {
                 continue;
             }
             let r = ui.add(egui::Button::new(format!("{icon}  {label}")).shortcut_text(keys));
+            if command == "app.versions" {
+                self.hint(&r, tr!("Every save is kept: go back to how the song was before"));
+            }
             if command == "app.credits" {
                 self.hint(&r, tr!("A text file crediting every online sound this project uses, with its license"));
             }

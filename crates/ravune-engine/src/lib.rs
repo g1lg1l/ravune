@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig, SupportedBufferSize};
-pub use analyze::{Analysis, BANDS, KEYS, analyze};
+pub use analyze::{Analysis, BANDS, KEYS, analyze, lufs, true_peak};
 pub use effects::{Effect, Effects, LOOK_AHEAD};
 use ravune_core::MAX_TRACKS;
 use renderer::BLOCK;

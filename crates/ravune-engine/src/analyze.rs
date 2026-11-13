@@ -24,6 +24,10 @@ pub struct Analysis {
     /// The best-fitting key: pitch class (0 = C), minor, and how well it fits (-1..1).
     pub key: (u8, bool, f32),
     pub bpm: Option<f32>,
+    /// Integrated loudness, LUFS (EBU R128 / BS.1770-4); -99 for silence.
+    pub lufs: f32,
+    /// True peak, dBTP (4× oversampled), what a streaming service's encoder will meet.
+    pub true_peak_db: f32,
 }
 
 impl Analysis {
@@ -102,7 +106,86 @@ pub fn analyze(frames: &[f32], rate: f32) -> Analysis {
         onsets,
         key: key(&mono, rate),
         bpm: detect_bpm(&Sample::new(mono, rate), ""),
+        lufs: lufs(frames, rate),
+        true_peak_db: db(true_peak(frames)),
     }
+}
+
+/// A biquad in f64 from its normalized coefficients (`a` without the leading 1).
+struct Iir {
+    b: [f64; 3],
+    a: [f64; 2],
+    z: [f64; 2],
+}
+
+impl Iir {
+    fn run(&mut self, x: f64) -> f64 {
+        let y = self.b[0] * x + self.z[0];
+        self.z[0] = self.b[1] * x - self.a[0] * y + self.z[1];
+        self.z[1] = self.b[2] * x - self.a[1] * y;
+        y
+    }
+}
+
+/// BS.1770's K-weighting at any rate: the head's high shelf, then the RLB high-pass
+/// (the coefficients as libebur128 derives them).
+fn k_weighting(rate: f64) -> [Iir; 2] {
+    use std::f64::consts::PI;
+    let (f0, gain, q) = (1681.974450955533, 3.999843853973347, 0.7071752369554196);
+    let k = (PI * f0 / rate).tan();
+    let vh = 10f64.powf(gain / 20.0);
+    let vb = vh.powf(0.4996667741545416);
+    let a0 = 1.0 + k / q + k * k;
+    let shelf = Iir { b: [(vh + vb * k / q + k * k) / a0, 2.0 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0], a: [2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0], z: [0.0; 2] };
+    let (f0, q) = (38.13547087602444, 0.5003270373238773);
+    let k = (PI * f0 / rate).tan();
+    let a0 = 1.0 + k / q + k * k;
+    let high_pass = Iir { b: [1.0, -2.0, 1.0], a: [2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0], z: [0.0; 2] };
+    [shelf, high_pass]
+}
+
+/// Integrated loudness of interleaved stereo `frames`, LUFS: K-weighted 400 ms blocks every
+/// 100 ms, gated at -70 LUFS and then 10 LU under the gated mean. -99 when nothing passes.
+pub fn lufs(frames: &[f32], rate: f32) -> f32 {
+    let mut filters = [k_weighting(rate as f64), k_weighting(rate as f64)];
+    let hop = (rate as usize / 10).max(1);
+    // the K-weighted energy of each 100 ms step, both channels summed
+    let steps: Vec<f64> = frames
+        .chunks(2 * hop)
+        .map(|c| {
+            c.as_chunks::<2>().0.iter().map(|f| (0..2).map(|ch| filters[ch].iter_mut().fold(f[ch] as f64, |x, b| b.run(x)).powi(2)).sum::<f64>()).sum::<f64>() / hop as f64
+        })
+        .collect();
+    let blocks: Vec<f64> = steps.windows(4).map(|w| w.iter().sum::<f64>() / 4.0).collect();
+    let loudness = |z: f64| -0.691 + 10.0 * z.max(1e-30).log10();
+    let mean_above = |gate: f64| {
+        let kept: Vec<f64> = blocks.iter().copied().filter(|&z| loudness(z) > gate).collect();
+        (!kept.is_empty()).then(|| kept.iter().sum::<f64>() / kept.len() as f64)
+    };
+    let Some(absolute) = mean_above(-70.0) else { return -99.0 };
+    mean_above(loudness(absolute) - 10.0).map_or(-99.0, |z| loudness(z).max(-99.0) as f32)
+}
+
+/// The highest peak between the samples too: each channel 4× oversampled through a
+/// Hann-windowed sinc (16 taps a phase), as BS.1770's true-peak meter.
+pub fn true_peak(frames: &[f32]) -> f32 {
+    const SIDE: i32 = 8;
+    let sinc = |t: f32| if t.abs() < 1e-6 { 1.0 } else { (std::f32::consts::PI * t).sin() / (std::f32::consts::PI * t) };
+    let hann = |t: f32| 0.5 + 0.5 * (std::f32::consts::PI * t / SIDE as f32).cos();
+    // the taps for the points a quarter, a half and three quarters past each sample
+    let phases: Vec<Vec<f32>> = (1..4).map(|p| (-SIDE + 1..=SIDE).map(|k| { let t = k as f32 - p as f32 / 4.0; sinc(t) * hann(t) }).collect()).collect();
+    let n = frames.len() / 2;
+    let mut peak = frames.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    for ch in 0..2 {
+        let x: Vec<f32> = (0..n).map(|i| frames[2 * i + ch]).collect();
+        for i in (SIDE - 1) as usize..n.saturating_sub(SIDE as usize) {
+            let window = &x[i + 1 - SIDE as usize..=i + SIDE as usize];
+            for taps in &phases {
+                peak = peak.max(window.iter().zip(taps).map(|(a, b)| a * b).sum::<f32>().abs());
+            }
+        }
+    }
+    peak
 }
 
 /// Krumhansl–Schmuckler: the pitch-class profile (C2–B5, by Goertzel on a 4× decimated
@@ -147,6 +230,29 @@ fn key(mono: &[f32], rate: f32) -> (u8, bool, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 1 kHz sine at -20 dBFS in both channels reads -20 LUFS (BS.1770's calibration);
+    /// silence passes no gate.
+    #[test]
+    fn measures_loudness() {
+        for rate in [44_100.0, 48_000.0] {
+            let sine: Vec<f32> = (0..(rate * 5.0) as usize).flat_map(|i| [0.1 * (TAU * 1000.0 * i as f32 / rate).sin(); 2]).collect();
+            let l = lufs(&sine, rate);
+            assert!((l + 20.0).abs() < 0.2, "{rate}: {l} LUFS");
+        }
+        assert_eq!(lufs(&vec![0.0; 88_200], 44_100.0), -99.0);
+    }
+
+    /// A sine at a quarter of the rate, sampled 45° off its crests: the samples peak at
+    /// 0.707, the wave itself at 1.
+    #[test]
+    fn finds_peaks_between_samples() {
+        let frames: Vec<f32> = (0..4000).flat_map(|i| [(std::f32::consts::FRAC_PI_2 * i as f32 + std::f32::consts::FRAC_PI_4).sin(); 2]).collect();
+        let sample_peak = frames.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!((sample_peak - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3);
+        let tp = true_peak(&frames);
+        assert!((tp - 1.0).abs() < 0.02, "true peak {tp}");
+    }
 
     /// An A minor arpeggio of plucks, two a second, the right side a little quieter.
     #[test]

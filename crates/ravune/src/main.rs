@@ -293,6 +293,8 @@ struct App {
     recording: Option<record::Recording>,
     /// Automation recording armed: knobs turned while the song plays write automation.
     auto_rec: bool,
+    /// When the TAP button was last hit, a few times over (tap tempo).
+    taps: Vec<std::time::Instant>,
     /// The knob being recorded, its clip and the last tick written (what the next move overwrites from).
     auto_last: Option<(ravune_core::Target, usize, u32)>,
     /// MCP clients talking to Ravune: the server, the log, the agent's undo group.
@@ -355,6 +357,8 @@ struct App {
     last_autosave: f64,
     pending: Option<files::Pending>,
     recovery: Option<Project>,
+    /// File → Versions… while it's open: the saved project's versions, newest first.
+    versions: Option<Vec<files::Version>>,
     /// What went wrong last time Ravune crashed, to report.
     crash: Option<String>,
     /// The lesson running and its step.
@@ -396,6 +400,7 @@ impl App {
             export: None,
             recording: None,
             auto_rec: false,
+            taps: Vec::new(),
             auto_last: None,
             agent: agent::Agent::default(),
             chat: chat::Chat::default(),
@@ -441,6 +446,7 @@ impl App {
             last_autosave: 0.0,
             pending: None,
             recovery,
+            versions: None,
             crash: None,
             lesson: None,
             title: String::new(),
@@ -653,6 +659,23 @@ impl App {
         }
     }
 
+    /// Tap tempo: the tempo the last taps keep; a pause of 2 s or more starts over.
+    fn tap_tempo(&mut self) {
+        let now = std::time::Instant::now();
+        if self.taps.last().is_none_or(|t| now - *t > std::time::Duration::from_secs(2)) {
+            self.taps.clear();
+            self.session.close_merge();
+        }
+        self.taps.push(now);
+        if self.taps.len() > 8 {
+            self.taps.remove(0);
+        }
+        let seconds: Vec<f64> = self.taps.iter().map(|t| (*t - self.taps[0]).as_secs_f64()).collect();
+        if let Some(bpm) = tap_bpm(&seconds) {
+            self.run_merge("transport.set_tempo", json!({ "bpm": bpm }), "tap");
+        }
+    }
+
     /// Runs a keymap command (`keymap::COMMANDS`): app actions here, the rest are operators.
     fn command(&mut self, id: &str) {
         let tab = |name: &str| shell::EDITORS.iter().find(|e| e.3 == name).map(|e| e.0);
@@ -668,6 +691,8 @@ impl App {
             }
             "app.export" => self.export_dialog(),
             "app.record" => self.toggle_record(),
+            "app.tap_tempo" => self.tap_tempo(),
+            "app.versions" => self.show_versions(),
             "app.credits" => self.export_credits(),
             "app.preferences" => self.toggle_preferences(),
             "app.browser" => self.settings.show_browser = !self.settings.show_browser,
@@ -1045,5 +1070,22 @@ impl eframe::App for App {
     fn on_exit(&mut self) {
         self.exit_cleanup();
         self.finish_update();
+    }
+}
+
+/// The tempo of taps at `seconds` (two or more), rounded to a hundredth, within 20..=300.
+fn tap_bpm(seconds: &[f64]) -> Option<f64> {
+    let span = seconds.last()? - seconds.first()?;
+    (seconds.len() >= 2 && span > 0.0).then(|| (6000.0 * (seconds.len() - 1) as f64 / span).round().clamp(2000.0, 30000.0) / 100.0)
+}
+
+#[cfg(test)]
+mod tap_tests {
+    #[test]
+    fn taps_average_their_gaps() {
+        assert_eq!(super::tap_bpm(&[0.0]), None);
+        assert_eq!(super::tap_bpm(&[0.0, 0.5, 1.0, 1.5]), Some(120.0));
+        assert_eq!(super::tap_bpm(&[0.0, 0.48, 1.02, 1.5]), Some(120.0));
+        assert_eq!(super::tap_bpm(&[0.0, 10.0]), Some(20.0));
     }
 }
