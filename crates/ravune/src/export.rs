@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, mpsc};
 
-use ravune_engine::{Mode, Song, Transport, lufs, render_offline, true_peak, write_wav_as};
+use ravune_engine::{Mode, Song, Transport, lufs, render_offline, render_region, true_peak, write_wav_as};
 use serde::{Deserialize, Serialize};
 
 use crate::App;
@@ -188,6 +188,19 @@ impl App {
     }
 
     pub fn export_dialog(&mut self) {
+        self.export_song(None);
+    }
+
+    /// Only the loop region (ticks), in the format picked last.
+    pub fn export_loop(&mut self) {
+        match self.session.loop_region {
+            Some(region) => self.export_song(Some(region)),
+            None => self.say_as(Tone::Error, tr!("No loop region yet: drag one on the playlist's ruler first")),
+        }
+    }
+
+    /// The song, or the `region` of it (ticks), to a file.
+    fn export_song(&mut self, region: Option<(u32, u32)>) {
         if self.export.is_some() {
             return;
         }
@@ -201,7 +214,8 @@ impl App {
             return;
         }
         let ext = format.ext();
-        let dialog = rfd::FileDialog::new().add_filter(format.label(), &[ext]).set_file_name(format!("{}.{ext}", self.file_name()));
+        let name = if region.is_some() { tr!("{} (loop)", self.file_name()) } else { self.file_name() };
+        let dialog = rfd::FileDialog::new().add_filter(format.label(), &[ext]).set_file_name(format!("{name}.{ext}"));
         let Some(path) = dialog.save_file() else { return };
         let library = &mut self.library;
         let transport = Transport { playing: true, mode: Mode::Song, start: 0, jump: 0, looped: None };
@@ -209,8 +223,11 @@ impl App {
         let (progress, (tx, done)) = (Arc::new(AtomicU32::new(0)), mpsc::channel());
         let shared = progress.clone();
         std::thread::spawn(move || {
-            let frames = render_offline(song, RATE as f32, TAIL_SECONDS, |p| shared.store(p.to_bits(), Relaxed));
-            let mut frames = frames;
+            let report = |p: f32| shared.store(p.to_bits(), Relaxed);
+            let mut frames = match region {
+                Some((from, to)) => render_region(song, RATE as f32, (from as f64, to as f64), TAIL_SECONDS, report),
+                None => render_offline(song, RATE as f32, TAIL_SECONDS, report),
+            };
             let lowered = safe_peaks(&mut frames);
             let loudness = (lufs(&frames, RATE as f32), lowered);
             let _ = tx.send(encode(format, &path, &frames, RATE).map(|_| (path, Some(loudness))));
@@ -335,6 +352,20 @@ mod tests {
             let peak = back.frames.iter().fold(0.0f32, |m, x| m.max(x.abs()));
             assert!((peak - 0.5).abs() < 0.05, "{format:?}: peak {peak}");
         }
+    }
+
+    /// The loop region renders just its own length (plus the tail), and plays.
+    #[test]
+    fn loop_region_renders_its_length() {
+        let p: ravune_core::Project = ron::from_str(crate::files::TEMPLATES[0].1).unwrap();
+        let mut library = crate::browser::Library::default();
+        let transport = Transport { playing: true, mode: Mode::Song, start: 0, jump: 0, looped: None };
+        let song = Song::compile(&p, transport, |s| library.get(s).ok());
+        let bar = 4 * ravune_core::PPQ;
+        let seconds = bar as f64 * 60.0 / (p.tempo as f64 * ravune_core::PPQ as f64);
+        let frames = render_region(song, 22_050.0, (bar as f64, 2.0 * bar as f64), 0.5, |_| {});
+        assert!(((frames.len() / 2) as f64 / 22_050.0 - (seconds + 0.5)).abs() < 0.01, "{} frames", frames.len() / 2);
+        assert!(frames.iter().any(|s| s.abs() > 0.05), "silent");
     }
 
     /// Every template plays out loud and clean from its first bar.

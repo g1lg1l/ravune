@@ -872,6 +872,11 @@ impl App {
                 self.run("device.bypass", json!({ "id": d.id }));
                 ui.close();
             }
+            if ui.button(tr!("{}  Duplicate", icons::COPY)).clicked() {
+                self.store_plugin_states(); // a plugin's copy starts where it is now
+                self.run("device.duplicate", json!({ "id": d.id }));
+                ui.close();
+            }
             if ui.button(tr!("{}  Remove", icons::TRASH)).clicked() {
                 self.run("device.remove", json!({ "id": d.id }));
                 ui.close();

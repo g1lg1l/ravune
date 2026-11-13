@@ -269,6 +269,11 @@ impl App {
                 };
                 let r = ui.label(RichText::new(text).font(Theme::mono(11.0)).color(color));
                 self.hint(&r, tr!("Sample rate · buffer latency · audio CPU. Preferences (Ctrl ,) to change."));
+                // clicks and gaps the audio had: a bigger buffer (Preferences) or fewer plugins help
+                if let Some(n) = self.engine.as_ref().map(|e| e.stats().xruns()).filter(|n| *n > 0) {
+                    let r = ui.label(RichText::new(tr!("{} dropouts", n)).font(Theme::mono(11.0)).color(t.meter_hot));
+                    self.hint(&r, tr!("The audio missed its deadline this many times (clicks or gaps): a bigger buffer in Preferences → Audio, or fewer plugins, helps"));
+                }
                 let r = widgets::meter(ui, &t, self.level);
                 self.hint(&r, tr!("Master output level. Red means clipping."));
                 self.volume_slider(ui, &t, 64.0);
@@ -455,6 +460,12 @@ impl App {
                     if r.clicked() {
                         ui.close();
                         self.export_dawproject();
+                    }
+                    let r = ui.add_enabled(self.session.loop_region.is_some(), egui::Button::new(format!("{}  {}", icons::REPEAT, tr!("Loop region…"))));
+                    self.hint(&r, tr!("Only the loop region, in the format picked last, with its tail"));
+                    if r.clicked() {
+                        ui.close();
+                        self.export_loop();
                     }
                     let r = ui.add(egui::Button::new(format!("{}  {}", icons::STACK, tr!("Stems…"))));
                     self.hint(&r, tr!("A file per mixer track, in the format picked last, with its reverb and delay tails"));

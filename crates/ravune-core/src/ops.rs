@@ -166,6 +166,7 @@ struct Quantize {
     channel: Option<usize>,
     pattern: Option<usize>,
     grid: Option<u32>,
+    strength: Option<f32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -975,16 +976,18 @@ pub static OPERATORS: &[Operator] = &[
     Operator {
         id: "notes.quantize",
         label: "Quantize Notes",
-        description: "Snap note starts to a grid in ticks (default 24 = 1/16).",
+        description: "Snap note starts to a grid in ticks (default 24 = 1/16); strength 0..1 moves them only that far (default 1, all the way).",
         example: "{}",
         undo: true,
         poll: has_channels,
         exec: |s, v| {
-            let Quantize { channel, pattern, grid } = props(v)?;
+            let Quantize { channel, pattern, grid, strength } = props(v)?;
             let grid = grid.unwrap_or(STEP).max(1);
+            let strength = strength.unwrap_or(1.0).clamp(0.0, 1.0) as f64;
             let (p, slot) = target(s, pattern, channel)?;
             for n in p.notes_mut(slot) {
-                n.start = ((n.start + grid / 2) / grid * grid).min(MAX_TICK - grid);
+                let snapped = ((n.start + grid / 2) / grid * grid).min(MAX_TICK - grid) as f64;
+                n.start = (n.start as f64 + (snapped - n.start as f64) * strength).round() as u32;
             }
             Ok(())
         },
@@ -1809,6 +1812,23 @@ pub static OPERATORS: &[Operator] = &[
             s.project.mixer[t].devices.remove(i);
             s.project.mappings.retain(|m| !matches!(m.target, Target::Device { id: d, .. } if d == id));
             s.project.midi_map.retain(|m| !matches!(m.target, Target::Device { id: d, .. } if d == id));
+            Ok(())
+        },
+    },
+    Operator {
+        id: "device.duplicate",
+        label: "Duplicate Effect",
+        description: "Copy an effect (by id), its settings and a plugin's stored state, right after it in its chain.",
+        example: r#"{"id": 1}"#,
+        undo: true,
+        poll: always,
+        exec: |s, v| {
+            let DeviceProps { id, .. } = props(v)?;
+            let (t, i, _) = s.project.device(id).ok_or("no such effect")?;
+            let mut copy = s.project.mixer[t].devices[i].clone();
+            copy.id = s.project.next_id;
+            s.project.next_id += 1;
+            s.project.mixer[t].devices.insert(i + 1, copy);
             Ok(())
         },
     },

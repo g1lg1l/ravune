@@ -65,6 +65,22 @@ impl App {
         }
     }
 
+    /// Throws the take away and starts it again: from where it began in song mode, from here
+    /// in pattern mode.
+    pub fn retry_take(&mut self) {
+        let Some(rec) = &mut self.recording else {
+            self.say_as(Tone::Info, tr!("Not recording: the record button starts a take"));
+            return;
+        };
+        rec.drain();
+        rec.frames.clear();
+        let start = rec.start;
+        if self.session.song_mode {
+            self.run("transport.jump", json!({ "tick": start }));
+        }
+        self.say_as(Tone::Info, tr!("Take discarded: recording again"));
+    }
+
     /// Collects what the engine recorded; stopping playback ends the take.
     pub fn poll_recording(&mut self) {
         let Some(rec) = &mut self.recording else { return };

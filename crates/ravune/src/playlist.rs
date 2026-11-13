@@ -1282,7 +1282,9 @@ impl App {
         // keys: clipboard, select all, and for the selection delete, duplicate, nudge, mute
         let typing = ui.ctx().egui_wants_keyboard_input();
         let here = resp.contains_pointer();
-        if !typing {
+        // over the piano roll, Ctrl+C / X / V are its own
+        let piano = self.piano.hovered.is_some_and(|f| f + 1 >= ui.ctx().cumulative_frame_nr());
+        if !typing && !piano {
             let (copy, cut, paste) = ui.input(|i| {
                 let has = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
                 (has(|e| matches!(e, egui::Event::Copy)), has(|e| matches!(e, egui::Event::Cut)), has(|e| matches!(e, egui::Event::Paste(_))))

@@ -67,11 +67,14 @@ pub struct PianoView {
     sel_menu: bool,
     /// Notes copied with Ctrl+C / Ctrl+X, for Ctrl+V.
     clipboard: Vec<ravune_core::Note>,
+    /// The last frame the pointer was over the notes: then the clipboard keys are the piano
+    /// roll's, not the playlist's.
+    pub hovered: Option<u64>,
 }
 
 impl Default for PianoView {
     fn default() -> Self {
-        Self { zoom: 72.0, row: 12.0, snap: 0, fold: false, lane: Lane::Velocity, auto: None, auto_drag: None, auto_bend: None, chord: None, tool: Tool::Draw, paint: None, drag: None, last_len: STEP, preview: None, scrolled: None, selected: BTreeSet::new(), selected_for: None, boxing: None, group: Vec::new(), sel_menu: false, clipboard: Vec::new() }
+        Self { zoom: 72.0, row: 12.0, snap: 0, fold: false, lane: Lane::Velocity, auto: None, auto_drag: None, auto_bend: None, chord: None, tool: Tool::Draw, paint: None, drag: None, last_len: STEP, preview: None, scrolled: None, selected: BTreeSet::new(), selected_for: None, boxing: None, group: Vec::new(), sel_menu: false, clipboard: Vec::new(), hovered: None }
     }
 }
 
@@ -196,6 +199,7 @@ impl App {
                 let grid = self.piano.grid(ui).max(STEP / 4);
                 for (label, op, props, help) in [
                     (tr!("Quantize"), "notes.quantize", json!({ "grid": grid }), tr!("Every note start onto the grid")),
+                    (tr!("Quantize 50%"), "notes.quantize", json!({ "grid": grid, "strength": 0.5 }), tr!("Every note start halfway to the grid: tighter, still played")),
                     (tr!("Legato"), "notes.legato", json!({}), tr!("Each note up to the next one")),
                     (tr!("Strum"), "notes.strum", json!({ "ticks": STEP / 4 }), tr!("Chords spread out, low to high")),
                     (tr!("Humanize"), "notes.humanize", json!({ "amount": 0.3 }), tr!("A little off the grid, varied velocity")),
@@ -566,6 +570,9 @@ impl App {
             }
         }
         // keys over the piano roll: Delete, Ctrl+A, Esc, the clipboard, Ctrl+D, arrows
+        if resp.contains_pointer() {
+            self.piano.hovered = Some(ui.ctx().cumulative_frame_nr());
+        }
         if resp.contains_pointer() && !ui.ctx().egui_wants_keyboard_input() {
             if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A)) {
                 self.piano.selected = (0..notes.len()).collect();

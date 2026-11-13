@@ -45,6 +45,17 @@ pub fn render_offline(mut song: Song, sample_rate: f32, tail_seconds: f32, progr
     render(song, sample_rate, (seconds * sample_rate as f64) as usize, progress)
 }
 
+/// Renders the playlist from tick `from` to `to` once, plus a release tail: the loop region's export.
+pub fn render_region(mut song: Song, sample_rate: f32, (from, to): (f64, f64), tail_seconds: f32, progress: impl Fn(f32)) -> Vec<f32> {
+    song.playing = true;
+    song.looping = false;
+    song.mode = Mode::Song;
+    song.start = from;
+    song.looped = Some((from, to));
+    let seconds = (to - from) * song.tick_seconds() + tail_seconds as f64;
+    render(song, sample_rate, (seconds * sample_rate as f64) as usize, progress)
+}
+
 /// Renders `seconds` from wherever `song`'s transport starts, in its mode (a pattern loops,
 /// the song stops at its end): a listening test. Interleaved stereo.
 pub fn render_span(mut song: Song, sample_rate: f32, seconds: f32) -> Vec<f32> {
@@ -277,7 +288,13 @@ impl Audio {
         s.held[1].store((held >> 64) as u64, Relaxed);
         s.frames.store(frames, Relaxed);
         let budget = frames as f32 / self.sr;
-        s.load.store((started.elapsed().as_secs_f32() / budget.max(1e-6)).to_bits(), Relaxed);
+        let load = started.elapsed().as_secs_f32() / budget.max(1e-6);
+        s.load.store(load.to_bits(), Relaxed);
+        // a block that took longer than it lasts reached the device late: a dropout, even
+        // where the driver doesn't report one
+        if load > 1.0 {
+            s.xruns.fetch_add(1, Relaxed);
+        }
     }
 }
 

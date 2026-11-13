@@ -238,6 +238,9 @@ fn notes_add_edit_quantize_remove() {
     ok(&mut s, "note.set", json!({"index": 0, "key": 62, "length": 48}));
     let notes = s.current_pattern().notes(5);
     assert_eq!((notes[0].key, notes[0].length, notes[1].velocity), (62, 48, 80));
+    ok(&mut s, "notes.quantize", json!({"strength": 0.5}));
+    let starts: Vec<u32> = s.current_pattern().notes(5).iter().map(|n| n.start).collect();
+    assert_eq!(starts, [3, 49], "halfway: 5 toward 0, 50 toward 48");
     ok(&mut s, "notes.quantize", json!({}));
     let starts: Vec<u32> = s.current_pattern().notes(5).iter().map(|n| n.start).collect();
     assert_eq!(starts, [0, 48]);
@@ -726,4 +729,20 @@ fn params_read_typed_values() {
     assert_eq!(unit("dB", -60.0, 12.0).parse("-6,5 dB", 0.0), Some(-6.5));
     assert_eq!(unit("wave", 0.0, 3.0).parse("2", 0.0), None);
     assert_eq!(hz.parse("loud", 500.0), None);
+}
+
+/// A duplicated effect: the same kind and settings, a new id, right after the original.
+#[test]
+fn effects_duplicate() {
+    let mut s = session();
+    ok(&mut s, "device.add", json!({"track": 1, "kind": "delay"}));
+    ok(&mut s, "device.add", json!({"track": 1, "kind": "reverb"}));
+    let first = s.project.mixer[1].devices[0].clone();
+    ok(&mut s, "device.set", json!({"id": first.id, "param": 0, "value": 0.5}));
+    ok(&mut s, "device.duplicate", json!({"id": first.id}));
+    let devices = &s.project.mixer[1].devices;
+    assert_eq!(devices.len(), 3);
+    assert_eq!((devices[1].kind, &devices[1].params), (devices[0].kind, &devices[0].params));
+    assert_ne!(devices[1].id, devices[0].id);
+    assert_eq!(devices[2].kind, DeviceKind::Reverb);
 }

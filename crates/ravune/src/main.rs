@@ -695,6 +695,7 @@ impl App {
             "app.export" => self.export_dialog(),
             "app.record" => self.toggle_record(),
             "app.tap_tempo" => self.tap_tempo(),
+            "app.retry_take" => self.retry_take(),
             "app.versions" => self.show_versions(),
             "app.credits" => self.export_credits(),
             "app.preferences" => self.toggle_preferences(),
