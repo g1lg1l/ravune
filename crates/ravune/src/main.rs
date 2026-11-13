@@ -25,6 +25,7 @@ mod kit;
 mod lessons;
 mod markdown;
 mod midi;
+mod midifile;
 mod mixer;
 mod online;
 mod orb;
@@ -639,10 +640,12 @@ impl App {
                 self.say_as(Tone::Done, tr!("Added {} to the browser", path.display()));
             } else if files::EXTENSIONS.contains(&ext.as_str()) {
                 self.request(files::Pending::Open(path));
+            } else if matches!(ext.as_str(), "mid" | "midi") {
+                self.import_midi(&path);
             } else if browser::AUDIO_EXTENSIONS.contains(&ext.as_str()) || ravune_core::INSTRUMENT_EXTENSIONS.contains(&ext.as_str()) {
                 self.dropped.push(path);
             } else {
-                self.say_as(Tone::Error, tr!("Can't use {}: not audio, a project or a folder", path.display()));
+                self.say_as(Tone::Error, tr!("Can't use {}: not audio, MIDI, a project or a folder", path.display()));
             }
         }
     }

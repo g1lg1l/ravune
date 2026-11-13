@@ -231,6 +231,17 @@ fn pattern_clips_follow_the_pattern_length_and_patterns_get_colors() {
 }
 
 #[test]
+fn notes_add_many() {
+    let mut s = session();
+    ok(&mut s, "notes.add", json!({"notes": [{"key": 60, "start": 0, "length": 96}, {"key": 64, "start": 96, "length": 48, "velocity": 90}]}));
+    let notes = s.current_pattern().notes(5);
+    assert_eq!(notes.len(), 2);
+    assert_eq!((notes[1].key, notes[1].start, notes[1].velocity), (64, 96, 90));
+    assert!(s.run("notes.add", json!({"notes": [{"key": 200, "start": 0, "length": 1}]})).is_err());
+    assert_eq!(s.current_pattern().notes(5).len(), 2, "a bad note adds none");
+}
+
+#[test]
 fn notes_add_edit_quantize_remove() {
     let mut s = session();
     ok(&mut s, "note.add", json!({"key": 60, "start": 5, "length": 24}));

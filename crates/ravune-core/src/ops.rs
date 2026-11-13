@@ -162,6 +162,23 @@ struct SetNote {
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
+struct AddNotes {
+    channel: Option<usize>,
+    pattern: Option<usize>,
+    /// Each note: key, start, length, and optionally velocity (1–127).
+    notes: Vec<NoteIn>,
+}
+
+#[derive(Deserialize)]
+struct NoteIn {
+    key: u8,
+    start: u32,
+    length: u32,
+    velocity: Option<u8>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
 struct Quantize {
     channel: Option<usize>,
     pattern: Option<usize>,
@@ -1466,6 +1483,25 @@ pub static OPERATORS: &[Operator] = &[
                 check_note(&note)?;
                 p.notes_mut(slot).push(note);
             }
+            Ok(())
+        },
+    },
+    Operator {
+        id: "notes.add",
+        label: "Add Notes",
+        description: "Draw many notes at once on a channel in a pattern: a list of key (60 = C4), start and length in ticks (96 per beat), and velocity (1–127, optional).",
+        example: r#"{"notes": [{"key": 60, "start": 0, "length": 96}, {"key": 64, "start": 96, "length": 96, "velocity": 90}]}"#,
+        undo: true,
+        poll: has_channels,
+        exec: |s, v| {
+            let AddNotes { channel, pattern, notes } = props(v)?;
+            let new: Vec<Note> = notes
+                .into_iter()
+                .map(|n| Note { key: n.key, start: n.start, length: n.length, velocity: n.velocity.unwrap_or(DEFAULT_VELOCITY).clamp(1, 127), fine: 0.0, bright: 0.5 })
+                .collect();
+            new.iter().try_for_each(check_note)?;
+            let (p, slot) = target(s, pattern, channel)?;
+            p.notes_mut(slot).extend(new);
             Ok(())
         },
     },

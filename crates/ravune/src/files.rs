@@ -351,8 +351,15 @@ impl App {
     }
 
     pub fn open_dialog(&mut self) {
-        let dialog = rfd::FileDialog::new().add_filter(tr!("Ravune project"), &EXTENSIONS).add_filter(tr!("DAWproject (from another DAW)"), &["dawproject"]);
+        let dialog = rfd::FileDialog::new()
+            .add_filter(tr!("Ravune project"), &EXTENSIONS)
+            .add_filter(tr!("DAWproject (from another DAW)"), &["dawproject"])
+            .add_filter(tr!("MIDI file (into this song)"), &["mid", "midi"]);
         if let Some(path) = dialog.pick_file() {
+            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mid") || e.eq_ignore_ascii_case("midi")) {
+                self.import_midi(&path);
+                return;
+            }
             let daw = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("dawproject"));
             self.request(if daw { Pending::Import(path) } else { Pending::Open(path) });
         }
