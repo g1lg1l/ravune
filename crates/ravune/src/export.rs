@@ -23,8 +23,23 @@ pub struct Export {
     done: mpsc::Receiver<Result<Exported, String>>,
 }
 
-/// Where an export went, and the song's loudness (LUFS, dBTP) when it's one file.
+/// Where an export went and, when it's one file, its loudness (LUFS) and how many dB its
+/// peaks were lowered.
 type Exported = (PathBuf, Option<(f32, f32)>);
+
+/// The most a song's true peak may reach: what streaming services' encoders take without clipping.
+const PEAK_CEILING_DB: f32 = -1.0;
+
+/// Turns `frames` down to [`PEAK_CEILING_DB`] true peak when they go over it; the dB lowered.
+fn safe_peaks(frames: &mut [f32]) -> f32 {
+    let peak = 20.0 * true_peak(frames).max(1e-9).log10();
+    let over = (peak - PEAK_CEILING_DB).max(0.0);
+    if over > 0.0 {
+        let gain = 10f32.powf(-over / 20.0);
+        frames.iter_mut().for_each(|s| *s *= gain);
+    }
+    over
+}
 
 /// What File → Export writes (the last one picked is what the export key repeats).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,7 +210,9 @@ impl App {
         let shared = progress.clone();
         std::thread::spawn(move || {
             let frames = render_offline(song, RATE as f32, TAIL_SECONDS, |p| shared.store(p.to_bits(), Relaxed));
-            let loudness = (lufs(&frames, RATE as f32), 20.0 * true_peak(&frames).max(1e-9).log10());
+            let mut frames = frames;
+            let lowered = safe_peaks(&mut frames);
+            let loudness = (lufs(&frames, RATE as f32), lowered);
             let _ = tx.send(encode(format, &path, &frames, RATE).map(|_| (path, Some(loudness))));
         });
         self.export = Some(Export { progress, done });
@@ -263,13 +280,12 @@ impl App {
         self.export = None;
         match result {
             Ok((path, None)) => self.say_as(Tone::Done, tr!("Exported {}", path.display())),
-            Ok((path, Some((lufs, peak)))) => {
-                let mut text = tr!("Exported {} · {} LUFS · true peak {} dBTP", path.display(), format!("{lufs:.1}"), format!("{peak:.1}"));
-                // streaming services turn louder songs down to about -14 LUFS, and their encoders clip peaks over -1 dBTP
-                if peak > -1.0 {
-                    text += tr!(" · peaks over -1 dBTP can distort once streamed: turn the master down a little");
+            Ok((path, Some((lufs, lowered)))) => {
+                let mut text = tr!("Exported {} · {} LUFS", path.display(), format!("{lufs:.1}"));
+                if lowered > 0.05 {
+                    text += &tr!(" · turned down {} dB so its peaks stay under -1 dBTP and don't distort once streamed", format!("{lowered:.1}"));
                 }
-                self.say_as(if peak > -1.0 { Tone::Info } else { Tone::Done }, text);
+                self.say_as(Tone::Done, text);
             }
             Err(e) => self.say_as(Tone::Error, tr!("Export failed: {}", e)),
         }
@@ -292,6 +308,18 @@ mod tests {
         let heard = kick.tracks_heard();
         assert!(heard[2] && heard[1] && heard[0], "the kick, its drum bus, the master");
         assert!(!heard[3], "not the bass");
+    }
+
+    /// A song too hot for streaming comes out at -1 dBTP; a quiet one is left alone.
+    #[test]
+    fn peaks_stay_under_the_ceiling() {
+        let mut hot: Vec<f32> = (0..44_100).flat_map(|i| [0.99 * (i as f32 * 0.3).sin(); 2]).collect();
+        assert!(safe_peaks(&mut hot) > 0.5);
+        assert!((20.0 * true_peak(&hot).log10() - PEAK_CEILING_DB).abs() < 0.05);
+        let mut quiet: Vec<f32> = (0..44_100).flat_map(|i| [0.3 * (i as f32 * 0.3).sin(); 2]).collect();
+        let before = quiet.clone();
+        assert_eq!(safe_peaks(&mut quiet), 0.0);
+        assert_eq!(quiet, before);
     }
 
     /// Every format comes back through the decoder as written (MP3 only where ffmpeg is).

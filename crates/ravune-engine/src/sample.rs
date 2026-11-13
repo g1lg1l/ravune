@@ -189,9 +189,20 @@ pub fn write_wav_as(path: &std::path::Path, samples: &[f32], channels: u16, rate
     }
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data_len.to_le_bytes());
+    // 16-bit gets TPDF dither (±1 LSB): quiet fades turn into soft hiss instead of grainy steps
+    let mut seed = 0x9E37_79B9u32;
+    let mut noise = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed as f32 / u32::MAX as f32
+    };
     for &x in samples {
         match bits {
-            16 => out.extend_from_slice(&((x.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes()),
+            16 => {
+                let dither = noise() - noise();
+                out.extend_from_slice(&((x.clamp(-1.0, 1.0) * 32767.0 + dither).round().clamp(-32768.0, 32767.0) as i16).to_le_bytes())
+            }
             24 => out.extend_from_slice(&((x.clamp(-1.0, 1.0) * 8_388_607.0) as i32).to_le_bytes()[..3]),
             _ => out.extend_from_slice(&x.to_le_bytes()),
         }

@@ -359,6 +359,8 @@ struct App {
     recovery: Option<Project>,
     /// File → Versions… while it's open: the saved project's versions, newest first.
     versions: Option<Vec<files::Version>>,
+    /// "Save changes?" was answered on the way out: close for real.
+    quit: bool,
     /// What went wrong last time Ravune crashed, to report.
     crash: Option<String>,
     /// The lesson running and its step.
@@ -447,6 +449,7 @@ impl App {
             pending: None,
             recovery,
             versions: None,
+            quit: false,
             crash: None,
             lesson: None,
             title: String::new(),
@@ -957,6 +960,13 @@ impl eframe::App for App {
         self.info_zone = std::mem::take(&mut self.info_zone_next);
         self.handle_keys(&ctx);
         self.take_drops(&ctx);
+        // closing the window with unsaved changes asks first (an update's restart already asked)
+        if self.quit {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else if ctx.input(|i| i.viewport().close_requested()) && self.dirty() && !self.ext.restart {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.pending.get_or_insert(files::Pending::Quit);
+        }
         if let Some(e) = &self.engine {
             self.level = e.stats().take_peak().max(self.level * 0.85);
             for (i, m) in self.meters.iter_mut().enumerate() {

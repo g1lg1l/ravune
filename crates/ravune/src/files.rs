@@ -36,6 +36,8 @@ pub enum Pending {
     Template(PathBuf),
     /// Close and open the update that's ready.
     Restart,
+    /// Close Ravune (the window's close button).
+    Quit,
     /// An earlier version of the open song (File → Versions…).
     Version(PathBuf),
 }
@@ -307,6 +309,11 @@ impl App {
                 }
             }
             Pending::Restart => self.ext.restart = true,
+            Pending::Quit => {
+                // saved, or "Don't Save": nothing to bring back next time
+                self.saved = self.session.project.clone();
+                self.quit = true;
+            }
             Pending::Version(path) => match read(&path) {
                 // the song's file stays the same, and what's on disk stays what's saved: saving keeps this version
                 Ok(project) => {
