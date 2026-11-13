@@ -65,11 +65,13 @@ pub struct PianoView {
     group: Vec<(usize, u32, u8)>,
     /// The right-click menu over the selection is up (so the right button didn't erase).
     sel_menu: bool,
+    /// Notes copied with Ctrl+C / Ctrl+X, for Ctrl+V.
+    clipboard: Vec<ravune_core::Note>,
 }
 
 impl Default for PianoView {
     fn default() -> Self {
-        Self { zoom: 72.0, row: 12.0, snap: 0, fold: false, lane: Lane::Velocity, auto: None, auto_drag: None, auto_bend: None, chord: None, tool: Tool::Draw, paint: None, drag: None, last_len: STEP, preview: None, scrolled: None, selected: BTreeSet::new(), selected_for: None, boxing: None, group: Vec::new(), sel_menu: false }
+        Self { zoom: 72.0, row: 12.0, snap: 0, fold: false, lane: Lane::Velocity, auto: None, auto_drag: None, auto_bend: None, chord: None, tool: Tool::Draw, paint: None, drag: None, last_len: STEP, preview: None, scrolled: None, selected: BTreeSet::new(), selected_for: None, boxing: None, group: Vec::new(), sel_menu: false, clipboard: Vec::new() }
     }
 }
 
@@ -563,16 +565,43 @@ impl App {
                 self.piano.sel_menu = false;
             }
         }
-        // keys over the piano roll: Delete, Ctrl+A, Esc
+        // keys over the piano roll: Delete, Ctrl+A, Esc, the clipboard, Ctrl+D, arrows
         if resp.contains_pointer() && !ui.ctx().egui_wants_keyboard_input() {
             if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A)) {
                 self.piano.selected = (0..notes.len()).collect();
             }
-            if !self.piano.selected.is_empty() {
+            let (copy, cut, paste) = ui.input(|i| {
+                let has = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+                (has(|e| matches!(e, egui::Event::Copy)), has(|e| matches!(e, egui::Event::Cut)), has(|e| matches!(e, egui::Event::Paste(_))))
+            });
+            let chosen: Vec<ravune_core::Note> = self.piano.selected.iter().filter_map(|&i| notes.get(i).copied()).collect();
+            if (copy || cut) && !chosen.is_empty() {
+                self.piano.clipboard = chosen.clone();
+                if cut {
+                    self.delete_selected_notes();
+                }
+            } else if paste && !self.piano.clipboard.is_empty() {
+                // where the pointer is, on the grid
+                let at = ui.input(|i| i.pointer.hover_pos()).map_or(0, |p| snap(tick_at(p.x), g));
+                self.add_notes(self.piano.clipboard.clone(), at as i64, notes.len());
+            } else if !chosen.is_empty() {
+                let shift = ui.input(|i| i.modifiers.shift);
                 if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Delete) || i.consume_key(Modifiers::NONE, Key::Backspace)) {
                     self.delete_selected_notes();
                 } else if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
                     self.piano.selected.clear();
+                } else if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::D)) {
+                    // the copy right after the selection, its span rounded up to the grid
+                    let from = chosen.iter().map(|n| n.start).min().unwrap_or(0);
+                    let span = chosen.iter().map(|n| n.end()).max().unwrap_or(0) - from;
+                    self.add_notes(chosen, (from + span.div_ceil(g).max(1) * g) as i64, notes.len());
+                } else {
+                    // arrows: a grid step or a semitone (Shift: an octave, or ←/→ the length)
+                    let moves = [(Key::ArrowLeft, -1i64, 0i64), (Key::ArrowRight, 1, 0), (Key::ArrowUp, 0, 1), (Key::ArrowDown, 0, -1)];
+                    let pressed = moves.into_iter().find(|(key, ..)| ui.input_mut(|i| i.consume_key(if shift { Modifiers::SHIFT } else { Modifiers::NONE }, *key)));
+                    if let Some((_, dx, dy)) = pressed {
+                        self.nudge_notes(&notes, dx, dy, shift, g, length);
+                    }
                 }
             }
         }
@@ -624,7 +653,7 @@ impl App {
             self.piano.group.clear();
             self.piano.boxing = None;
         }
-        self.hint(resp, tr!("Piano roll: click to draw · drag to move · right edge to resize (snap follows the zoom, Alt = free) · hold the right button to erase · Ctrl+drag selects (then drag them together, right-click or Del to delete) · Ctrl+wheel zoom · Alt+wheel row height."));
+        self.hint(resp, tr!("Piano roll: click to draw · drag to move · right edge to resize (snap follows the zoom, Alt = free) · hold the right button to erase · Ctrl+drag selects (then drag them together, right-click or Del to delete) · arrows move it (Shift: an octave, or the length) · Ctrl+C / X / V / D · Ctrl+wheel zoom · Alt+wheel row height."));
     }
 
     /// Per-note values under the grid (velocity, fine pitch, brightness), following its
@@ -705,6 +734,41 @@ impl App {
     }
 
     /// Deletes the selected notes, as one undo step.
+    /// Adds `new` (as copied, starts kept apart) with the first one at `at`, as one undo step,
+    /// and selects them. `count` is how many notes the channel has now.
+    fn add_notes(&mut self, new: Vec<ravune_core::Note>, at: i64, count: usize) {
+        let from = new.iter().map(|n| n.start).min().unwrap_or(0) as i64;
+        self.session.close_merge();
+        for n in &new {
+            let start = (n.start as i64 - from + at).max(0);
+            self.run_merge("note.add", json!({ "key": n.key, "start": start, "length": n.length, "velocity": n.velocity, "fine": n.fine, "bright": n.bright }), "paste-notes");
+        }
+        self.session.close_merge();
+        self.piano.selected = (count..count + new.len()).collect();
+    }
+
+    /// The selection a grid step left / right (`dx`) or a semitone up / down (`dy`); with
+    /// `shift`, an octave, or ←/→ shorter / longer by a step. Nothing moves past an edge.
+    fn nudge_notes(&mut self, notes: &[ravune_core::Note], dx: i64, dy: i64, shift: bool, g: u32, length: u32) {
+        let chosen: Vec<(usize, ravune_core::Note)> = self.piano.selected.iter().filter_map(|&i| notes.get(i).map(|n| (i, *n))).collect();
+        let (g, octave) = (g as i64, if shift { 12 } else { 1 });
+        let lowest = chosen.iter().map(|(_, n)| n.start as i64).min().unwrap_or(0);
+        let latest = chosen.iter().map(|(_, n)| n.start as i64).max().unwrap_or(0);
+        let (bottom, top) = (chosen.iter().map(|(_, n)| n.key as i64).min().unwrap_or(0), chosen.iter().map(|(_, n)| n.key as i64).max().unwrap_or(0));
+        let dt = (dx * g).clamp(-lowest, (length as i64 - 1 - latest).max(-lowest));
+        let dk = (dy * octave).clamp(-bottom, 127 - top);
+        self.session.close_merge();
+        for (i, n) in chosen {
+            let props = if shift && dx != 0 {
+                json!({ "index": i, "length": (n.length as i64 + dx * g).max(g) })
+            } else {
+                json!({ "index": i, "start": n.start as i64 + dt, "key": n.key as i64 + dk })
+            };
+            self.run_merge("note.set", props, "nudge-notes");
+        }
+        self.session.close_merge();
+    }
+
     fn delete_selected_notes(&mut self) {
         let mut chosen: Vec<usize> = std::mem::take(&mut self.piano.selected).into_iter().collect();
         chosen.sort_unstable_by(|a, b| b.cmp(a)); // from the end, so the others keep their place

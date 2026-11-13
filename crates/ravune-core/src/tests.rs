@@ -706,3 +706,24 @@ fn a_bent_stretch_bows_alike_both_ways_and_never_shoots_up() {
     assert!(bend(0.5, 1.0, true) > 0.9 && bend(0.5, 1.0, false) < 0.1, "bowed right up: rises early, falls late");
     assert_eq!(bend(0.25, 0.0, true), 0.25, "straight");
 }
+
+/// Typed values read in the unit they're shown in, and land inside the range.
+#[test]
+fn params_read_typed_values() {
+    let unit = |unit: &'static str, min: f32, max: f32| ParamInfo { unit, min, max, ..*Param::Cutoff.info() };
+    let hz = unit("Hz", 20.0, 20_000.0);
+    assert_eq!(hz.parse("1.2k", 500.0), Some(1200.0));
+    assert_eq!(hz.parse("440", 5000.0), Some(440.0));
+    assert_eq!(hz.parse("99999", 500.0), Some(20_000.0));
+    let s = unit("s", 0.001, 10.0);
+    assert_eq!(s.parse("250 ms", 1.0), Some(0.25));
+    assert_eq!(s.parse("300", 0.2), Some(0.3), "a bare number in the ms showing");
+    assert_eq!(s.parse("2", 1.5), Some(2.0));
+    assert_eq!(unit("%", 0.0, 1.0).parse("40%", 0.0), Some(0.4));
+    let pan = unit("pan", -1.0, 1.0);
+    assert_eq!(pan.parse("L30", 0.0), Some(-0.3));
+    assert_eq!(pan.parse("c", 0.5), Some(0.0));
+    assert_eq!(unit("dB", -60.0, 12.0).parse("-6,5 dB", 0.0), Some(-6.5));
+    assert_eq!(unit("wave", 0.0, 3.0).parse("2", 0.0), None);
+    assert_eq!(hz.parse("loud", 500.0), None);
+}

@@ -111,6 +111,29 @@ impl ParamInfo {
         if self.curve == Steps { v.round() } else { v }
     }
 
+    /// A value typed for this parameter, in the unit it shows ("1.2k" or "1200" Hz, "250 ms",
+    /// "40%", "L30"; a bare number for a time is in the unit showing for `now`). `None` for
+    /// what isn't a number (a waveform, a filter type) or text that isn't one.
+    pub fn parse(&self, text: &str, now: f32) -> Option<f32> {
+        let text = text.trim().to_lowercase();
+        if self.unit == "pan" && text == "c" {
+            return Some(0.0);
+        }
+        let number: String = text.chars().filter(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | ',')).collect();
+        let n: f32 = number.replace(',', ".").parse().ok()?;
+        let bare = !text.chars().any(|c| c.is_alphabetic());
+        let v = match self.unit {
+            "wave" | "ftype" | "onoff" | "beats" | "grp" => return None,
+            "Hz" if text.contains('k') => n * 1000.0,
+            "s" if text.contains("ms") || bare && self.format(now).ends_with("ms") => n / 1000.0,
+            "%" => n / 100.0,
+            "pan" if text.starts_with('l') => -n / 100.0,
+            "pan" => n / 100.0,
+            _ => n,
+        };
+        Some(self.clamp(v))
+    }
+
     /// Value → 0..1 knob position.
     pub fn to_norm(&self, v: f32) -> f32 {
         match self.curve {

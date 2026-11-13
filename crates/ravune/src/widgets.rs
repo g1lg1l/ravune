@@ -114,6 +114,14 @@ pub fn knob(ui: &mut Ui, t: &Theme, info: &ParamInfo, value: f32) -> (Response, 
     if resp.double_clicked() || reset_pressed(ui, &resp) {
         new = Some(info.default);
     }
+    // typing a value: Alt-click, or Enter on a focused knob, opens a field for it
+    let edit_id = id.with("typing");
+    let mut typing: Option<String> = ui.data(|d| d.get_temp(edit_id));
+    let open = resp.clicked() && ui.input(|i| i.modifiers.alt) || resp.has_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+    if open && typing.is_none() && info.parse(&info.format(value), value).is_some() {
+        typing = Some(info.format(value));
+        new = None;
+    }
 
     let shown = new.unwrap_or(value);
     resp.widget_info(|| WidgetInfo::slider(true, shown as f64, format!("{} {}", info.name, info.format(shown))));
@@ -139,6 +147,30 @@ pub fn knob(ui: &mut Ui, t: &Theme, info: &ParamInfo, value: f32) -> (Response, 
     } else {
         resp
     };
+    if let Some(text) = &mut typing {
+        let field = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 16.0), rect.max);
+        painter.rect_stroke(field, CornerRadius::same(t.radius_sm), Stroke::new(1.0, t.accent), StrokeKind::Inside);
+        let edit = ui.put(field, eframe::egui::TextEdit::singleline(text).font(Theme::mono(11.0)).align(Align2::CENTER_CENTER).frame(eframe::egui::Frame::NONE).id(edit_id.with("edit")));
+        if !edit.has_focus() && !edit.lost_focus() {
+            edit.request_focus();
+        }
+        let (enter, escape) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        // the Enter that opened it doesn't close it
+        let done = !open && (edit.lost_focus() || enter || escape);
+        if done && !escape {
+            new = info.parse(text, value);
+        }
+        ui.data_mut(|d| match done {
+            true => d.remove::<String>(edit_id),
+            false => {
+                d.insert_temp(edit_id, text.clone());
+            }
+        });
+        if done {
+            resp.request_focus();
+        }
+        return (resp, new);
+    }
     let value_color = if resp.dragged() { t.accent } else { t.fg_text };
     // a long value gets a little smaller to fit, then ends in "…" (the whole of it on hover)
     let (text, mut font) = (info.format(shown), Theme::mono(11.0));

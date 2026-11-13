@@ -59,10 +59,11 @@ pub const COMMANDS: [Command; 38] = [
 ];
 
 /// Keys that aren't commands. Shown on the F1 sheet after the commands.
-pub const FIXED: [(&str, &[(&str, &str)]); 4] = [
+pub const FIXED: [(&str, &[(&str, &str)]); 5] = [
     ("Always", &[("Space", "Play / stop · hold in the playlist to pan"), ("F1", "This sheet"), ("Esc", "Close a dialog"), ("Ctrl ,", "Preferences → Keys: presets, rebinding")]),
-    ("Keyboard control", &[("Tab", "Next control (Shift: previous)"), ("Arrows", "Move between controls"), ("Enter", "Press / toggle"), ("Up Down", "Turn a focused knob (Shift: fine)"), ("Delete", "Reset a focused knob")]),
+    ("Keyboard control", &[("Tab", "Next control (Shift: previous)"), ("Arrows", "Move between controls"), ("Enter", "Press / toggle"), ("Up Down", "Turn a focused knob (Shift: fine)"), ("Delete", "Reset a focused knob"), ("Alt click / Enter", "Type a knob's value")]),
     ("Play notes", &[("A W S E D F T G", "Notes, Ableton layout"), ("Z X", "Octave down / up"), ("C V", "Velocity down / up")]),
+    ("Piano roll", &[("Arrows", "Move the selected notes (Shift: an octave)"), ("Shift ← →", "Shorter / longer"), ("Ctrl C X V", "Copy, cut, paste where the pointer is"), ("Ctrl D", "Duplicate the selected notes")]),
     ("Playlist", &[("Space + drag", "Pan around"), ("Ctrl wheel", "Zoom"), ("Delete", "Delete the selected clip"), ("Ctrl D", "Duplicate the selected clip")]),
 ];
 
